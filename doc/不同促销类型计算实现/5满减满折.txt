@@ -1,0 +1,244 @@
+【满减满折】
+	type_num_id=5
+	【满数量打折】view_type_num_id=200503
+	【满金额打折】view_type_num_id=200504
+		满金额打折不能设置翻倍次数，默认就是可翻倍的
+	【满数量减/每满数量减】view_type_num_id=200501
+	【满金额减/每满金额减】view_type_num_id=200502
+	
+	
+	#无配比
+	可翻倍
+	一档一组，一档下只能设置一个商品集合
+	只执行一档(可以设置仅执行一档还是叠加多档的不可设置了，以前应该可以设置)
+	
+	关键字段：
+	pmt_pcy_bl_level_dtl
+		levelgroup_id
+		begin_qty
+		end_qty
+		begin_amount
+		end_amount
+		discount
+		decrease_amount
+		multiple_sign
+		
+	pmt_pcy_level_group
+		levelgroup_id
+		group_begin_qty
+		group_end_qty
+		group_begin_amount
+		group_end_amount
+		group_discount
+		group_decrease_amount
+		group_multiple_sign
+		
+	基本逻辑
+		计算翻倍次数
+			翻倍次数cishu = 档下商品购买总数量allQty / group_begin_qty  或 档下商品的总金额allAmount / begin_amount
+			如果有翻倍次数限制，取小的
+		
+		计算每组参与优惠的总数量或总金额
+			shouldBuyAmount = groupBeginAmount * cishu
+			shouldBuyQty = groupBeginQty * cishu
+		
+		每组参与优惠的总数量或总金额分配到不同的商品上，并计算优惠总金额
+			以商品的可用数量乘以价格(价格需要按照优惠基准调整)得到该商品的交易金额
+			如果是打折
+				如果满减是否使用零售价的开关为否，(这个时候不考虑优惠基准了？)  【感觉这个开关为否的时候代表使用TRADE_PRICE】
+					该商品的优惠金额就是该商品的交易金额乘以优惠百分比： 交易金额*(1-groupDiscount)
+				如果满减是否使用零售价的开关为是，此时需要考虑优惠基准	
+					该商品的优惠金额就是：couldUseQty * tradePrice(修正后的交易价) * (1-groupDiscount)		
+			如果是立减
+				优惠金额就是立减金额乘以翻倍次数
+				
+		分摊优惠总金额
+			就是按照参与优惠的单个商品的交易总金额占所有参与优惠的商品的交易总金额的比例去分摊优惠总金额
+			新TRADE_PRICE = 旧TRADE_PRICE - singleCouldShareDeduct / QTY
+			
+		【有bug：
+			满3件打8折 如果买4件实测4件都打8折；
+			如果买A3件 B1件 实测只有A3件打8折；
+			如果买A4件 B1件 实测A4件打8折；
+			如果买A5件 B1件 实测6件都打8折
+		】
+		
+------
+代码思路
+		
+		获取每个组对应的商品购买的总金额allAmount和总数量allQty  【这个方法是通用的】
+			allQty = 同一个组下所有商品 QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2  之和
+			allAmount = 同一个组下所有商品 TRADE_AMOUNT 之和
+			
+		考虑到满减多档的叠加，所以需要重新取值：	
+		如果fullsubtract_remain存在的话，
+		allQty = fullsubtract_remain.fullsubtract_remain_qty
+		allAmount = fullsubtract_remain.fullsubtract_remain_amount
+		//itemDetailMap
+		//	{
+		//		"fullsubtract_remain": {
+		//			"fullsubtract_remain_qty":
+		//			"fullsubtract_remain_amount":
+		//		}
+		//	}
+			
+		校验总金额和总数量是否满足设定的档的金额起止条件或者数量起止条件，过滤出满足条件的档
+			注意 这里用的是：group_begin_qty、group_end_qty、group_begin_amount、group_end_amount
+		(满减type_num_id=5时，group_end_qty和group_end_amount的值都设为最大，
+			这样满减的多档就可以进行叠加，否则最多只能落到一个档)	
+			
+			
+		遍历组
+			cauclatePromotionParticipateItemAndCauclateDeduct计算每组优惠金额
+				#计算组下商品数量之和allQty和总金额之和allAmount
+				如果group_discount=0，说明是【分组立减】
+					
+				否则是【分组折扣】
+					获取配置 pmt_config_full_quota_use_retail_price_sign(满减是否使用零售价的开关：0-否；1-是)对应的配置值对应的configValue
+																			【这个开关的定义是否有歧义？】
+						#如果值为1，即使用零售价
+						#	根据优惠基准得到新的交易价newTradePrice
+						#	计算新的交易额
+						#		allAmount += QTY * newTradePrice
+						
+						
+						获取当前可用的数量和金额
+						allQty = fullsubtract_remain.fullsubtract_remain_qty
+						allAmount = fullsubtract_remain.fullsubtract_remain_amount	
+						
+						计算翻倍次数：
+							如果groupBeginQty>0
+								cishu = allQty / groupBeginQty
+							如果groupBeginAmount>0	
+								cishu = allAmount / groupBeginAmount
+							cishu = Min(groupMultipleSign, cishu)	
+							
+						计算优惠金额 
+							如果是折扣立减
+								totalDeductAmount = groupDecreaseAmount * cishu
+							
+							应该购买的总金额或应该购买的总数量（这个数量是翻倍后的，作为下面的循环的出口） 
+							shouldBuyAmount = groupBeginAmount * cishu
+							shouldBuyQty = groupBeginQty * cishu
+							
+							遍历档下的商品
+								如果(begin_qty > 0 && shouldBuyQty <=0) || (begin_amount > 0 && shouldBuyAmount <= 0) 继续下一次循环 
+							
+								获取可用数量couldUseQty = QTY.SINGLE_GRADE_USE_QTY_2
+								如果configValue=0
+									tradePrice = TRADE_PRICE
+								否则 											【？？如果配置的使用零售价，然后再根据优惠基准计算交易价？】
+									如果优惠基准groupDiscountAgain=1	原价/零售价 
+										tradePrice = RETAIL_PRICE
+									如果优惠基准groupDiscountAgain=2	交易价
+										tradePrice = TRADE_PRICE
+									如果优惠基准groupDiscountAgain=3	实际售价/执行售价
+										tradePrice = STANDARD_PRICE	
+								
+								该商品的交易金额：								
+								amount = couldUseQty * tradePrice
+								
+								#如果sub_qty > couldUseQty || (amount >= sub_amount && sub_amount > 0，继续下一次循环
+						
+								计算满足shareAmount需要该商品的数量 
+									如果groupBeginAmount > 0 
+										needQty = Ceil(shouldBuyAmount / tradePrice)    【向上取整】
+									否则 	
+										needQty = shouldBuyQty
+									useQty = Min(needQty, couldUseQty)	
+									
+								如果是折扣打折 
+									如果configValue=0
+										totalDeductAmount += TRADE_AMOUNT * (1-groupDiscount)		【优惠金额相当于交易金额*优惠百分比】
+									否则 
+										deductAmount = couldUseQty * tradePrice * (1-groupDiscount)
+									
+										oldTotalTradePrice += QTY * TRADE_PRICE
+										newTotalTradePrice += QTY * tradePrice
+										如果oldTotalTradePrice <= newTotalTradePrice - deductAmount
+											deductAmount = 0 【如果促销优惠后的交易金额比不使用促销还高  则不使用促销】
+										否则 
+											deductAmount = oldTotalTradePrice - (newTotalTradePrice - deductAmount)
+														 = oldTotalTradePrice - newTotalTradePrice + deductAmount
+														 【优惠金额要抵掉之前促销或者调价产生的优惠的部分】
+										totalDeductAmount += deductAmount	
+												
+												
+								如果groupBeginAmount>0
+									shouldBuyAmount = shouldBuyAmount - useQty * tradePrice
+								否则
+									shouldBuyQty = shouldBuyQty - useQty
+									
+								promotionParticipateItemLableStrAndQtyMap.put(itemLableStr, useQty)  // 后续分摊优惠金额用	
+									
+							重置fullsubtract_remain.fullsubtract_remain_qty = fullsubtract_remain_qty - groupBeginQty * cishu 
+							重置fullsubtract_remain.fullsubtract_remain_amount = fullsubtract_remain_amount - groupBeginAmount * cishu
+								
+										
+			
+			多组优惠金额之和相加得到总优惠金额totalDeductAmount
+			
+			-----
+			
+			cauclateDeductPromotion分摊优惠总金额
+				遍历promotionParticipateItemLableStrAndQtyMap，求组下所有参与优惠的商品的交易金额之和(TRADE_PRICE * QTY之和)
+					totalTradePrice += TRADE_PRICE * QTY
+					
+				如果总优惠金额totalDeductAmount=0	
+					封装deductItemInfo
+						{
+							"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+							"DEDUCT_AMOUNT":					0
+							"SERIES":							#小票商品行号
+							"TRADE_PRICE":						TRADE_PRICE
+						}
+					再封装到list中 以List<Map<String, Object>> 		
+				否则：
+					遍历promotionParticipateItemLableStrAndQtyMap 
+						计算单个商品的交易总价
+							singleTotalTradePrice = tradePrice * QTY 
+						计算单个商品分摊的优惠金额	【就是按照参与优惠的单个商品的交易总金额占所有参与优惠的商品的交易总金额的比例去分摊优惠总金额】
+							singleCouldShareDeduct = singleTotalTradePrice - singleTotalTradePrice * (totalTradePrice-totalDeductAmount) / totalTradePrice
+												   = (singleTotalTradePrice / totalTradePrice) * totalDeductAmount
+							考虑到计算误差，最后一个商品分摊的优惠金额是剩余可分摊的优惠金额
+						
+						更新商品的中间值itemDetail信息
+							如果不可以叠加享受的话：
+								使用量：SINGLE_GRADE_USE_QTY.USE_QTY_2 += useQty
+								
+						计算单个商品平摊的促销价格		
+							新TRADE_PRICE = 旧TRADE_PRICE - singleCouldShareDeduct / QTY
+							COM_TRADE_PRICE = 新TRADE_PRICE
+							新TRADE_AMOUNT = 旧TRADE_AMOUNT - singleCouldShareDeduct
+						
+						封装deductItemInfo
+							{
+								"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+								"DEDUCT_AMOUNT":					singleCouldShareDeduct
+								"SERIES":							#小票商品行号
+								"TRADE_PRICE":						新TRADE_PRICE
+							}
+						再封装到list中 以List<Map<String, Object>> 
+						
+				最终封装结果，并设置到resDeductInfoList
+					元素是Map
+						{
+							"RESERVED_NO":
+							"GRADE":
+							"LEVELGROUP_ID":
+							"TOTAL_DEDUCT_AMOUNT":			// 商品优惠总金额 totalDeductAmount
+							"TYPE_NUM_ID":
+							"EXPIRE_TIME":					// 失效时间就是endDtme
+							"TICKET_ID":
+							"ITEM_INFO": [					// 商品信息
+								{
+									"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+									"DEDUCT_AMOUNT":					singleCouldShareDeduct
+									"SERIES":							#小票商品行号
+									"TRADE_PRICE":						新TRADE_PRICE
+								}
+							]	
+							"DESCRIPTION":
+						}	
+			
+							

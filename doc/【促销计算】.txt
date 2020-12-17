@@ -1,0 +1,405 @@
+一、促销计算入口
+	gb.unitepos.sale.order.promotion.calculate
+	beanid：uniteposSalePromotionService
+	method：calculateUniteposPromotion
+		开启事务
+			调用calculatePromotionSingleOrder()方法
+			计算完促销 订单状态修改为2(生效)
+		提交事务	
+	
+	
+二、calculatePromotionSingleOrder 单个订单计算促销信息
+	1.校验 
+		检查小票必须是销售小票，即小票类型typeNumId必须是1
+		校验小票状态必须是1(创建)
+		校验是否是团购订单(订单标识so_sign=10且团购单号coupon_num_id>0) 团购订单不参与促销计算
+		校验订单支付表的支付标识必须是0(未支付)，完全支付或部分支付都不允许进行促销计算
+	2.还原促销之前的信息【由于订单可能已经计算过促销 所以重新计算的时候要清除之前的数据】
+		删除赠品信息，即删除小票明细表中pmt_sign=1的记录 (赠品也是计算促销的时候加的)
+		对订单明细的价格和优惠信息进行还原操作
+			设置折后价trade_price = 分摊价resolve_trade_price	
+						【促销计算会导致trade_price变动 
+							不过原始的trade_price就是resolve_trade_price 新增的时候resolve_trade_price=trade_price】
+			设置折后金额trade_amount = trade_amount + 分摊金额resolve_value	
+						【促销计算后会在tradeAmount上扣除对应商品分摊的促销金额，还原的时候需要加回来】
+			设置优惠金额deduct_amount = deduct_amount - 分摊金额resolve_value
+						【促销计算后会在deductAmount上加上对应商品分摊的促销金额，还原的时候需要减掉】
+			设置分摊金额resolve_value = 0	每个商品的促销分摊金额重置为0
+			设置抹零金额maling_amount = 0	后续重新进行抹零
+			设置应付金额f_amount = 0	【应付金额=折后金额-销售抹零，如果没有优惠且不是现金支付的话 实付最终等于应付】
+			设置预约数量revat_qty = 0
+		删除优惠信息，即删除sd_bl_so_tml_dtl_price_source表的数据  			
+				【计算促销后 如果商品应用了促销 更新小票明细之后 对应的得添加价格来源记录 所以还原促销时得删除记录】
+				【问题：会不会把非促销导致的价格变动的记录给删掉？】
+		
+	3.获取计算促销使用的明细信息并计算促销
+		查看附件【获取计算促销使用的明细信息sql.txt】
+			按照商品id及价格信息分组？
+			数量需要减去截单已退货数量
+			
+		调用calculatePromotionForNotCenter计算促销【看下面：三】
+
+		计算完之后的结果处理(如果deducts和gifts信息都为空格 则直接返回)
+			获取小票明细，
+				校验qty-stopUseQty必须大于0。如果等于0不处理？
+				并按商品编号_库位属性(itemNumId_locPtyNumId)分组，组内的列表数据按照小票明细series升序排序
+				(为什么分组下的数据可能是多条？)
+			【修改小票明细中的促销信息】
+				遍历itemTradePrices  
+					遍历对应的小票明细
+						如果qty<0或者qty=stopUseQty 
+							设置tradePrice为促销计算出的tradePrice
+							设置resolvePrice=0
+							设置tradeAmount=0
+						否则
+							对同一商品编号_库位属性(itemNumId_locPtyNumId)的数据
+							计算均摊折扣总额，按照 (qty - stopUseQty) / totalQty 的比例去均摊这个组的折扣金额
+							shareDeduct = totalDeductAmount*((qty - stopUseQty) / totalQty)
+							（考虑到计算精度 最后一条分摊的时候 应该是总折扣金额减去已经分摊掉的所有折扣金额）
+							
+							设置resolveValue=原resolveValue+shareDeduct   即设置分摊金额 = 折扣金额
+							设置tradeAmount=原tradeAmount-shareDeduct	  即设置交易金额 = 折扣金额
+							设置deductAmount=原deductAmount+shareDeduct	  即追加折扣金额
+							设置tradePrice为促销计算出的tradePrice
+							
+							对于非DM调价并且有促销信息的(price_type!=503)
+								设置reservedNo=促销单号
+								设置priceType=促销类型编号 
+					更新小票明细			
+				
+			【添加数据到sd_bl_so_tml_dtl_price_source】 
+			
+			
+			添加赠品信息
+				遍历gifts
+					最终要赠送的赠品数量：
+						orderQty = reservedGiftQty(翻倍次数) * giftQty(1) * singleQty(设置的满足档条件赠送的数量)
+					新增/更新小票商品  【赠品可能与主品设置的是同样的商品 所以可能是更新】
+						注意小票商品的几个字段   
+						  新增：
+							设置qty=orderQty
+							设置tradePrice=depreciate			【对于无交互买赠，depreciate=0】
+							设置tradeAmount=tradePrice*qty
+							设置resolveTradePrice=tradePrice
+							设置deductAmount=0
+						  更新：	
+							设置qty=原qty+orderQty
+							设置tradeAmount=原tradeAmount + depreciate*orderQty
+							设置tradePrice=(原tradeAmount + depreciate*orderQty)/(原qty+orderQty)
+							设置resolveTradePrice=tradePrice
+								
+					新增/更新小票商品价格来源记录
+						新增时设置decuctAmount=orderQty*standardPrice 
+						更新时设置decuctAmount=(原qty+orderQty)*standardPrice     ???
+				
+			最终组装数据返回 
+		
+								
+								
+		
+促销服务：			
+三、PromotionCalculateServiceImpl calculatePromotionForNotCenter 非中台的促销计算(pos专用)
+		
+		传入的参数
+			scope=3(门店)，shopNumId=0，mgUnitNumId=0，ticketIds为空list
+		
+		设置写死：
+		platformIds=9
+		DONT_POINT_POLICY 不追加促销政策信息
+			
+		分摊exceptIdenticalItem：
+		【为什么存在分摊的情况？应该是因为允许下单时添加同一个商品不叠加数量】
+		对明细集合中的相同的itemNumId、locPtyNumId数据进行分组，把组内的多条数据转成一条，并分摊standardPrice,tradePrice
+			分组key：{itemNumId}_{locPtyNumId}_{reservedNo}  
+					 {itemNumId}_{locPtyNumId}				// 默认应该是这个key
+					 
+			遍历分组
+				计算平均价，进行分摊 【分摊就是把明细中itemNumId和locPtyNumId都相同的多条记录平均成一条记录】
+					计算每个组下的所有
+						商品总数量totalQty，qty之和
+						零售总金额retailAmount(retailPrice*qty之和)
+						标准总金额standardAmount(standardPrice*qty之和)
+						交易总金额tradeAmount(tradePrice*qty之和)
+						平均零售价averageRetailPrice = retailAmount / totalQty
+						平均标准价averageStandardPrice = standardAmount / totalQty
+						平均交易价averageStandardPrice = tradeAmount / totalQty
+					分摊过后 以一个商品 对应总数量 平均价等信息	来进行表示
+					
+			最终明细信息封装成 List<CalculatePromotionItem>		
+					
+					
+		查询促销getPromotionInfo：
+			getSinglePromotionLable
+				1)获取促销信息findPromotionPmtPcyItemLables：
+					1.1).getPmtPcyItemLableForCalculatePromotion(获取促销标签，外部传入scope)：
+						【【这里是通过门店信息获取所有的促销，pmt_pcy_org内联pmt_pcy_item和pmt_pcy_level_group进行查询】】
+						获取促销标签集合getLableInfo
+							如果启用了redis缓存，从缓存中获取 【促销适用机构的缓存是审核促销的时候加的 离线pos不启用缓存】
+								key: lable_ary._countrywide_t_{tenantNumId:6}_d_{dataSign:0}
+									 lable_ary._m_{mgUnitNumId}_t_{tenantNumId:6}_d_{dataSign:0}_{itemNumId}
+									 lable_ary._s_{subUnitNumId}_t_{tenantNumId:6}_d_{dataSign:0}_{itemNumId}
+									 lable_ary._e_{ecShopNumId}_t_{tenantNumId:6}_d_{dataSign:0}_{itemNumId}
+								如果商品编号是0
+									多了一个本地缓存，如果本地缓存中没有，逻辑与下面类似(略)
+								否则
+									根据促销标签号获取数据
+										先查缓存 key：pcyinfo.{档的series}
+										如果存在，继续查缓存的商品折扣信息 
+											key： pcydiscount.i_{itemNumId}_r_{reservedNo}_s_{series}
+										
+									最终返回促销标签List<PromotionPmtPcyItemLable>结构的数据	
+									PromotionPmtPcyItemLable这个bean的结构与原先存的结构(PmtPcyLevelGroup)是一样的,
+									但是多了几个字段：itemNumId、scopeNumId、mgUnitNumId、subUnitNumId、ecShopNumId
+													  showStatus(卡券展示相关的字段)、couponNo(卡券号)
+							否则，查表
+								参考附件【根据不同的scope获取对应的促销信息sql.txt】
+								就是pmt_pcy_org、pmt_pcy_item、pmt_pcy_level_group三表关联查询
+								
+								针对普通商品，itemNumId存在且不为0：
+								如果scope=4（电商门店）以item_num_id、scope_num_id、ec_shop_num_id为条件进行查询
+								如果scope=3（门店），以item_num_id、scope_num_id、sub_unit_num_id为条件进行查询
+								如果scope=2（分公司），以item_num_id、scope_num_id、mg_unit_num_id为条件进行查询 【实际无用】
+								如果scope=1（全国），以item_num_id、scope_num_id、mgUnitNumId=1为条件进行查询
+																【注意mgUnitNumId=1时表示全国 不是0】
+																【门店的促销一定会适用到其对应的电商门店吗？】
+																【分公司的促销一定会适用到其下的所有门店(略)】
+								针对全场商品，itemNumId=0
+									
+									
+						过滤filterPmtPcyItemLableByOrderDate
+							【【过滤出当前订单的日期满足促销起止日期】】
+							筛选出满足 订单日期在促销的起止时间之间(包含边界) 的促销标签
+							如果设置了循环：
+								周循环cycleType=2
+									需要满足订单日期(今天对应的星期几)在每周几循环cycleWeek的设置值中
+								月循环cycleType=3
+									需要满足订单日期(今天对应的几号)在每月几号循环cycle_month的设置值中
+							如果设置了时间段(cycle_time_sign=1)：
+								（cycleType=1且cycle_time_sign=null表示旧版本,也需要校验时间段）
+								（原先时段循环、周循环、月循环之间是或的关系，新版本时段与周循环/月循环是且的关系）
+								需要满足订单时间(也就是此刻)满足cycle_time的设置
+						
+					
+					【促销是从适用机构的维度下获取出来的 需要进行二次过滤】
+					1.2).过滤掉现金券政策不符合指定的折扣 todo 
+						如果促销类型是8(无条件现金券),且group_standard_price_sign=1(正价参与)
+						过滤掉促销折扣大于实际折扣(discount=tradePrice/retailPrice)的
+						
+					1.3).排除缓存的商品信息与需要的商品信息不一致的
+							即排除掉促销标签商品编号不是指定商品的数据   
+					1.4).排除卡券信息 【处理指定卡券才能使用促销的情景】
+							如果指定了具体的政策，则促销标签的卡券id必须在指定的卡券id之中
+					1.5).排除错误的商品等级信息
+							促销标签的商品等级必须符合指定的商品等级locPtyNumId
+					1.6).排除错误的VIP等级信息 
+							校验促销标签的vip等级vipGradeString必须包含指定的vip等级
+							#vipGradeString，如果为空表示全部vip等级都适用
+							
+					1.7).排除无条件降价的政策信息
+							【对于同一个商品的多个可用的单品促销 只留一个】
+							如果促销类型是1(单品无条件降价)，针对同一个商品的多个促销，过滤出促销开始时间最新的，
+								如果开始时间一样，则选择折扣金额SubPmtValue小的  ?? 为什么是选择小的
+								
+								【这个地方也有问题 ？？？？？】 
+					
+					1.8).如果是付款前，排除掉促销类型是605(满额送券)的促销		【满额送券是付款之后才会赠送券】
+						 (如果是付款后，只取促销类型是605的促销)	
+					1.9).过滤掉不符合销售场景的
+							促销标签的销售场景settlementTypeString必须包含指定的销售场景
+					1.10).过滤掉不符合购买数量限制(会员限购)的 todo
+							(略)  【离线pos暂未处理限购】
+							
+				2).getCalculatePromotionCartItemWithLableList 
+					组装数据成List<CalculatePromotionCartItemWithLable>
+					计算会员限购 然后把限购信息设置到CalculatePromotionCartItemWithLable下的
+						PromotionPmtPcyItemLable的pmtBuyLimitResult字段   todo
+						
+						促销类型是1，则限购类型是限购件数；促销类型不是1，则限购类型是限购单数
+						
+						如果促销标签中的每人限购数buyLimitPerPerson大于0 校验活动期间用户总限购数量
+							从缓存中查用户已购数量
+								如果是限购件数
+									Key：pcy_buy_limit_{tenantNumId:6}_{dataSign:0}_{reservedNo}_{itemNumId}_{usrNumId}
+								如果是限购单数
+									Key：pcy_buy_limit_{tenantNumId:6}_{dataSign:0}_{reservedNo}_{usrNumId}
+						
+							缓存查不到，查表
+						
+						如果促销标签中的每人每日限购数buyLimitPerPersonPerDay大于0，则校验该用户每人每日限购数
+							从缓存中查用户已购数量
+								如果是限购件数
+									Key：pcy_buy_limit_{tenantNumId:6}_{dataSign:0}_{reservedNo}_{itemNumId}_{usrNumId}_{orderDate:yyyyMMdd}
+								如果是限购单数
+									Key：pcy_buy_limit_{tenantNumId:6}_{dataSign:0}_{reservedNo}_{usrNumId}_{orderDate:yyyyMMdd}
+						
+							缓存查不到，查表
+						
+					
+		排序
+			先按照grade升序排序并分组
+			同一个grade组内再按照typeNumId升序排序
+			再按照{grade}_{typeNumId}进行分组，组内按照reservedNo升序排序
+			(即：先按grade升序，同一个grade再按typeNumId升序，同一个typeNumId再按reserveNo升序)
+				
+		初始化计算所需数据initPromotionCalculateLableInfo
+			lableSeriessAndLableDetailMap：促销标签号labelSeries到促销标签PromotionPmtPcyItemLable的映射
+			reservedNoAndTypeNumIdMap：促销编号到促销类型的映射
+			reservedNoAndPromotionPmtPcyItemLableMap：促销编号到促销标签的映射，只取第一个促销标签
+			itemAppendLocPtyNumIdAndDetailMap：{itemNumId}_{locPtyNumId}到促销详情的映射	【商品->促销】
+												【价格都是小票商品明细中获取的，小票商品价格来源于到店商品价格】
+												【standard_price的值 就是到店商品表的price字段(执行售价)】
+												促销详情：{
+															"QTY": 
+															"SINGLE_GRADE_USE_QTY": 
+																{
+																	"USE_QTY_{gradeNumId}": 0
+																}
+															"COM_TRADE_PRICE":		   // 值取自standard_price
+															"STANDARD_PRICE":
+															"TRADE_PRICE":
+															"RETAIL_PRICE":
+															"TRADE_AMOUNT":
+															"POSITIVE_TRADE_PRICE":		// 值取自retail_price
+														  }
+		    reservedNoAndGradeIdMap: 促销编号到促销等级/优先级的映射
+			gradeTypeIdAndPcyDetailMap：促销等级/优先级到促销的映射。
+					Map<促销优先级,Map<促销政策号,Map<促销档,Map<促销组,List<组商品信息>>>>
+					Map<gradeNumId, singleGradeAndPcyDetailMap>						【促销等级/优先级->促销集】
+								   Map<reserved_no, reservedNoAndPromotionInfoMap>	【促销编号->促销档】
+												  Map<levelgroup_id, levelGroupMap> 【促销档->促销组】
+															 Map<levelfltr_id, flterAndItemLableList(List<String>)>
+																			   {itemNumId}_{locPtyItemId}#{labelSeries}#{orderLineSeries}
+					gradeTypeIdAndPcyDetailMap按照grade升序排序
+					singleGradeAndPcyDetailMap的排序规则：
+						先按促销循环类型cycle_type降序，
+						再按会员等级VipGradeString降序，
+						再按促销政策创建时间降序，
+						最后按促销编号降序排序
+					reservedNoAndPromotionInfoMap按levelgoupId降序排序	
+					flterAndItemLableList 组下的商品明细先按STANDARD_PRICE升序，再按{itemNumId}_{locPtyNumId}这个字符串升序排
+						
+		   
+		    groupFltMap：其他信息，如档中组数、配比
+				{
+					"{reservedNo#type_num_id}": {typeNumId},
+					"{reservedNo}#{levelgroup_id}": {levelfltr_count},							#档内组数
+					"{reservedNo}#{levelgroup_id}#qty_matching", {group_fitler_qty_matching}	#配比 
+				}
+				
+		组装数据 filterPcyData
+			根据促销类型typeNumId获取促销计算实现service
+			// todo 如果促销类型是5(满减)...
+			
+			
+			filterPcyData
+				满减叠加的数据初始化(按促销单号维度初始化),typeNumId=5
+					遍历itemDetailMap 
+						追加key：fullsubtract_remain
+						value值： {
+									"fullsubtract_remain_qty":		初始值就是所有商品的QTY之和
+									"fullsubtract_remain_amount":	初始值就是所有商品的TRADE_AMOUNT之和
+								  }
+			
+			
+				遍历singleGradeAndPcyDetailMap，处理每一个促销政策
+				【singleDealCalcluatePromotion 单个促销政策计算促销】
+					遍历档(标签)，检查分档下的组数量是否满足
+					如果组数大于1【一档多组】
+						cauclateOneGroupHaveMoreThanOneLevelfltr 一档多组计算促销
+					如果组数等于1【一档一组】
+						cauclateOneGroupHaveOneLevelfltr 一档一组计算促销
+							获取翻倍次数
+							统计参与促销的所有商品的数量以及总价getAllAmountAndQty 
+								获取当前促销等级的可以使用的数量信息 todo
+					
+			如果不可以叠加享受(isRepeatEnjoy!=1)，排除同等级已经使用的商品信息   
+				就是同一个商品不能适用多个政策的促销
+
+					
+			计算完的结果处理：
+				List<Map<String, Object>> resDeductInfoList  
+				 Map：
+					{
+						"RESERVED_NO":
+						"GRADE":
+						"LEVELGROUP_ID":
+						"TOTAL_DEDUCT_AMOUNT":			// 折扣总金额 所有商品的折扣总金额
+						"TYPE_NUM_ID":
+						"EXPIRE_TIME":					// 失效时间就是endDtme
+						"TICKET_ID":
+						"ITEM_INFO": [					// 单个商品的折扣信息
+							{
+								"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":	{itemNumId}_{locPtyItemId}
+								"DEDUCT_AMOUNT":		// 商品的总的折扣金额(乘了数量)
+								"SERIES":	{orderLineSeries}
+								"TRADE_PRICE":			// 交易价 计算完促销之后的
+							}
+						]	
+						"DESCRIPTION":
+					}
+			
+				List<Map<String, Object>> resGiftInfoInfoList
+				Map：
+					{
+						"RESERVED_NO":
+						"GRADE":
+						"LEVELGROUP_ID":
+						"RESERVED_GIFT_QTY":			// 赠品数量 就等于翻倍次数 每翻一倍就需要赠送一次
+						"TYPE_NUM_ID":
+						"EXPIRE_TIME":					// 失效时间就是endDtme
+						"TICKET_ID":
+						"ITEM_INFO": 					// 主品信息
+							{
+								"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":	{itemNumId}_{locPtyItemId}
+								"DEDUCT_AMOUNT":		// 商品的总的折扣金额(乘了数量)
+								"SERIES":	{orderLineSeries}
+								"TRADE_PRICE":			// 交易价 计算完促销之后的
+							}
+						"DESCRIPTION":
+					}	
+			
+				如果有折扣且可以重复享受isRepeatEnjoy=1   todo 
+					排除同等级已经使用了的商品信息
+					排除同等级已经使用了的商品信息(赠品商品)
+					排除同等级已经使用了的商品信息(赠品券)
+					
+					
+			最终组装成Map返回
+				{
+					"DEDUCT_INFO":	List<Map<String, Object>> resDeductInfoList				商品折扣信息
+					"GIFT_INFO":	List<Map<String, Object>> resGiftInfoInfoList			买赠的主品信息
+					"TICKET_INFO":	List<Map<String, Object>> resTicketGiftInfoInfoList
+					"CASH_INFO":	List<Map<String, Object>> resCashCouponInfoList
+				}
+		
+		获取最后计算价钱信息getItemTradePrice 设置到tradePrices字段
+			【就是组装数据 这个数据是促销计算之后 如果有促销 弹框展示的商品列表】
+			遍历deducts下的items
+				如果同一个商品存在多个促销折扣信息  【这个情况什么时候出现？】
+					取tradePrice最小的 同时要累加deductAmount折扣金额
+					
+			就是List<CalculatePromotionDeduct> deducts数据转成List<CalculatePromotionItemTradePrice> tradePrices
+
+		获取满额用券的明细信息 设置到cashCoupons字段
+			
+		获取赠品信息 设置到gifts字段
+			从GIFT_INFO中获取买赠计算完的结果并遍历
+				根据促销单号和档id查询赠品组标签
+					遍历赠品组标签
+						组装赠品数据
+						
+				遍历赠品组数据
+					计算翻倍次数
+						piece = RESERVED_GIFT_QTY / giftQty(1)
+						如果typeNumId=1(赠送类型：赠完为止)且dtlJustOne=1(明细任选)且groupEnable=0(组不生效)
+							遍历赠品
+								获取赠品的可用库存avalQty
+								如果piece * (giftQty * qty) > avalQty,那就没足够库存可送，去掉该赠品信息
+									
+		
+		
+		
+		#设置可能使用的促销政策集合 实际无用 
+		
+		
+		最终返回 

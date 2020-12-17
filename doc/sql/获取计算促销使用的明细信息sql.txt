@@ -1,0 +1,46 @@
+SELECT
+	sum(d.qty - d.stop_use_qty) AS qty,
+	d.item_num_id,
+	max(d.series) series,
+	d.retail_price,
+	d.standard_price,
+	d.tml_num_id,
+	d.trade_price AS trade_price,
+	d.loc_pty_num_id,
+	d.PMT_SIGN,
+	sum(d.trade_amount) AS trade_amount,
+	sum(d.back_qty) AS back_qty,
+	sum(d.stop_qty) AS stop_qty,
+	sum(d.cancel_qty) AS cancel_qty,
+	RESOLVE_TRADE_PRICE
+FROM
+	sd_bl_so_tml_dtl d
+WHERE
+	d.tml_num_id = ?
+	AND d.data_sign =?
+	AND d.tenant_num_id = ?
+  AND barcode_type_num_id != 6		-- 商品条码类型不为6
+
+-- 如果不查询赠品(GIFT_SEARCH_EXCEPT_FLAG == 0)
+  AND pmt_sign = 0
+-- 如果获取正向的促销计算明细信息(GET_PROMOTION_ITEM == 1)
+  AND d.qty-d.stop_use_qty>0 AND d.qty>0
+
+
+GROUP BY d.item_num_id,	
+				 d.retail_price,
+				 d.standard_price,
+				 d.tml_num_id,
+				 d.loc_pty_num_id,
+				 d.PMT_SIGN,
+				 RESOLVE_TRADE_PRICE,				-- 为什么按这个分组
+				 d.trade_price
+                         
+limit (
+	SELECT count(1) 
+	FROM sd_bl_so_tml_dtl d 
+	WHERE d.tml_num_id = ? 
+		AND d.data_sign =? 
+		AND d.tenant_num_id = ? 
+		AND barcode_type_num_id != 6
+);

@@ -1,0 +1,30 @@
+【满额送券】
+	type_num_id=605
+	【满数量发券】view_type_num_id=260205
+	返券模式固定为下单付款即返
+	无翻倍
+	无配比
+	
+	关键字段
+	pmt_pcy_bl_level_dtl
+		levelgroup_id
+		begin_qty
+		end_qty
+		
+	pmt_pcy_level_group	
+		levelgroup_id
+		group_begin_qty
+		group_end_qty
+		
+	pmt_pcy_bl_giftticket_dtl	赠券组
+		levelgroup_id
+		#gift_qty				1 倍数？
+	pmt_pcy_bl_giftticket_sub_dtl	赠券组明细	
+		levelgroup_id
+		ticketid				券规则id
+		qty						赠送数量
+	pmt_pcy_giftticket_lable
+		levelgroup_id
+		gift_qty
+		qty
+		ticketid

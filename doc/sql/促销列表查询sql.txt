@@ -1,0 +1,239 @@
+#带商品的查询
+select * from (   
+		select * from (   
+			select distinct 
+					hh.activity_num_id, 
+					aa.activity_name, 
+					hh.apply_plat, 
+					hh.begin_day, 
+					hh.begin_tm, 
+					hh.cancelsign, 
+					hh.channel_num_id,
+					hh.create_dtme, 
+					hh.create_user_id, 
+					hh.data_sign, 
+					hh.description, 
+					hh.detail_details_show, 
+					hh.div_num_id, 
+					hh.end_day, 
+					hh.end_tm,
+					hh.audit_user_id, 
+					hh.except_teg_reserved_no, 
+					hh.except_teg_type_num_id, 
+					hh.grade, 
+					hh.last_update_user_id, 
+					hh.last_updtme, 
+					hh.loc_pty_num_id, 
+					hh.may_teg_reserved_no, 
+					hh.may_teg_type_num_id, 
+					hh.member_lable_num_id, 
+					hh.pcy_customer_url, 
+					hh.pcy_sales_url, 
+					hh.pmt_name, 
+					hh.pmt_selling_point, 
+					hh.policy_cort_num_id, 
+					hh.policy_cort_rate, 
+					hh.policy_own_num_id, 
+					hh.relation_cort_num_id, 
+					hh.relation_cort_rate, 
+					hh.reserved_no, 
+					hh.rule_description, 
+					hh.series, 
+					hh.space_type_num_id, 
+					hh.status_num_id, 
+					hh.tenant_num_id, 
+					hh.ticketid, 
+					hh.type_num_id, 
+					hh.view_type_num_id, 
+					hh.vip_active_gift,
+					hh.vip_birth_gift, 
+					hh.levelgroup_type, 
+					hh.cycle_type, 
+					hh.cycle_week, 
+					hh.cycle_month, 
+					hh.cycle_time, 
+					hh.vip_grade_string, 
+					hh.sub_unit_num_id,
+					hh.settlement_type_string, 
+					hh.is_input_product, 
+					hh.is_all_product, 
+					hh.is_resolve_tickets,
+					hh.cycle_time_sign,
+					hh.buy_limit_type,
+					hh.buy_limit_per_person_per_day,
+					hh.buy_limit_per_order,
+					hh.buy_limit_per_person,
+					hh.buy_limit_per_activity,
+					hh.show_category,
+					hh.promotion_show_rule,
+					hh.daily_limit_stock_qty    
+			
+			-- 如果传了门店id参数
+			,case 
+						 when pad.mg_unit_num_id = 1 then 1  -- 全国
+						 when psd.sub_unit_num_id <> 0 then psd.sub_unit_num_id 
+						 when ped.ec_shop_num_id <> 0 then ped.ec_shop_num_id 
+						 else 0  
+			 end as sub_unit_num_id_1
+		
+
+			from pmt_pcy_bl_hdr hh   
+			inner join pmt_pcy_bl_activity aa on aa.activity_NUM_ID = hh.activity_NUM_ID and aa.tenant_num_id = hh.tenant_num_id and aa.data_sign = hh.data_sign   
+			left join pmt_pcy_bl_levelfltr_sub_dtl sub on sub.reserved_no = hh.reserved_no and sub.tenant_num_id = hh.tenant_num_id and sub.data_sign = hh.data_sign   
+			left join pmt_pcy_bl_exceptfltr_sub_dtl ex on ex.reserved_no = hh.reserved_no and ex.tenant_num_id = hh.tenant_num_id and ex.data_sign = hh.data_sign   
+		
+			-- 如果传了门店编号 需要关联下面的表
+			left join pmt_pcy_bl_subunit_dtl psd on psd.reserved_no = hh.reserved_no  
+			left join pmt_pcy_bl_area_dtl pad on pad.reserved_no = hh.reserved_no  
+			left join pmt_pcy_bl_ecshop_dtl ped on ped.reserved_no = hh.reserved_no 
+
+			where   
+				# 先按商品id或名称查询出item_num_id集合以及其他维度的维度值集合
+				hh.is_all_product = 1 -- 全场                
+				or (hh.is_all_product = 0 and (sub.item_num_id in({itemNumIds}) or sub.dimension_value in({otherDimesionS})))		-- 部分参与
+				or (hh.is_all_product = 2 and (ex.item_num_id in({itemNumIds}) or ex.dimension_value in({otherDimesionS})))			-- 部分不参与
+			) t1    
+
+		where    
+			tenant_num_id = ?   
+			and ticketid = {ticketid}
+			and pmt_name like '%%'{pmtName}'%%'
+			and reserved_no = {}
+			and date_format({beginDay},'%Y-%m-%d') <= date_format(hh.begin_day,'%Y-%m-%d')
+			and date_format({endDay},'%Y-%m-%d') >= date_format(hh.end_day,'%Y-%m-%d')
+			and type_num_id = {typeNumId}
+			and grade = {grade}
+			and find_in_set({platformId},hh.apply_plat)
+			and view_type_num_id = viewTypeNumId
+			and activity_name like '%'{activityName}'%'
+			and create_user_id in({empeNumIds})  -- 员工ids是员工名称模糊查询出来的结果集
+
+			-- 如果传了单据状态
+			and status_num_id = {statusNumId}
+			-- 如果传了门店编号 
+			and (sub_unit_num_id_1 = {subUnitNumId} or sub_unit_num_id_1 = 1)
+
+			and data_sign = ?   
+			and activity_num_id is not null   
+			and ticketid is not null  -- 字段有默认值空串 这个条件的作用？
+			order by last_updtme desc    
+	) t2 
+
+	limit ?,?;
+
+#不带商品的查询
+select * from (  
+		select * from (
+				select distinct 
+					hh.activity_num_id,   
+					aa.activity_name,  
+					hh.apply_plat,   
+					hh.begin_day,   
+					hh.begin_tm,   
+					hh.cancelsign,   
+					hh.channel_num_id,   
+					hh.create_dtme,   
+					hh.create_user_id,   
+					hh.data_sign,   
+					hh.description,   
+					hh.detail_details_show,   
+					hh.div_num_id,   
+					hh.end_day,   
+					hh.end_tm,   
+					hh.except_teg_reserved_no,   
+					hh.except_teg_type_num_id,   
+					hh.grade,   
+					hh.last_update_user_id,   
+					hh.last_updtme,   
+					hh.loc_pty_num_id,   
+					hh.may_teg_reserved_no,   
+					hh.may_teg_type_num_id,   
+					hh.member_lable_num_id,   
+					hh.pcy_customer_url,   
+					hh.pcy_sales_url,   
+					hh.pmt_name,   
+					hh.pmt_selling_point,   
+					hh.policy_cort_num_id,   
+					hh.policy_cort_rate,   
+					hh.policy_own_num_id,   
+					hh.relation_cort_num_id,   
+					hh.relation_cort_rate,   
+					hh.reserved_no,   
+					hh.rule_description,   
+					hh.series,   
+					hh.space_type_num_id,   
+					hh.status_num_id,   
+					hh.tenant_num_id,   
+					hh.ticketid,   
+					hh.type_num_id,   
+					hh.view_type_num_id,   
+					hh.vip_active_gift,   
+					hh.vip_birth_gift,   
+					hh.levelgroup_type,   
+					hh.cycle_type,   
+					hh.cycle_week,   
+					hh.cycle_month,   
+					hh.cycle_time,   
+					hh.vip_grade_string,   
+					hh.sub_unit_num_id,   
+					hh.settlement_type_string,   
+					hh.is_input_product,   
+					hh.is_all_product,   
+					hh.is_resolve_tickets,   
+					hh.audit_user_id,
+					hh.cycle_time_sign,
+					hh.buy_limit_type,
+					hh.buy_limit_per_person_per_day,
+					hh.buy_limit_per_order,
+					hh.buy_limit_per_person,
+					hh.buy_limit_per_activity,
+					hh.show_category,
+					hh.promotion_show_rule,
+					hh.daily_limit_stock_qty    
+
+					-- 如果传了门店编号的话
+					,case
+					    when pad.mg_unit_num_id = 1 then 1 
+							when psd.sub_unit_num_id <> 0 then psd.sub_unit_num_id 
+							when ped.ec_shop_num_id <> 0 then ped.ec_shop_num_id 
+							else 0 
+					end as sub_unit_num_id_1
+
+					from  pmt_pcy_bl_hdr hh    
+					inner join pmt_pcy_bl_activity aa on aa.activity_NUM_ID = hh.activity_NUM_ID and aa.tenant_num_id=hh.tenant_num_id and aa.data_sign=hh.data_sign    
+
+					-- 如果传了门店编号的话
+					left join pmt_pcy_bl_subunit_dtl psd on psd.reserved_no = hh.reserved_no
+					left join pmt_pcy_bl_area_dtl pad on pad.reserved_no = hh.reserved_no
+					left join pmt_pcy_bl_ecshop_dtl ped on ped.reserved_no = hh.reserved_no
+
+					where 
+						aa.tenant_num_id = ? 
+						and aa.data_sign = ?   
+						-- 如果传了单据类型的话
+						and hh.status_num_id = {statusNumId}
+
+						and hh.ticketid = {ticketid}
+						and hh.pmt_name like '%%'{pmtName}'%%'
+						and hh.reserved_no = {}
+						and date_format({beginDay},'%Y-%m-%d') <= date_format(hh.begin_day,'%Y-%m-%d')
+						and date_format({endDay},'%Y-%m-%d') >= date_format(hh.end_day,'%Y-%m-%d')
+						and hh.type_num_id = {typeNumId}
+						and hh.grade = {grade}
+						and find_in_set({platformId},hh.apply_plat)
+						and hh.view_type_num_id = viewTypeNumId
+						and aa.activity_name like '%'{activityName}'%'
+						and hh.create_user_id in({empeNumIds})  -- 员工ids是员工名称模糊查询出来的结果集
+  
+						and hh.activity_num_id is not null 
+						and hh.ticketid is not null
+					) t1    
+
+				where 1=1     
+
+				and (sub_unit_num_id_1= ? or sub_unit_num_id_1=1 )
+				
+				order by last_updtme desc   
+				limit ?,?
+
+		) t2  ;

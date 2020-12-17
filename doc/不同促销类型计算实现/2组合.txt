@@ -1,0 +1,255 @@
+【组合促销】 type_num_id=2
+	 【满金额组合】view_num_id=200202
+	 【满数量组合】view_num_id=200201
+		只能选择部分商品，但是可以选择排除部分商品
+		会员等级的不同不影响政策，不能对会员等级维度进行区分
+		所有选择的商品使用同样的政策，不能对商品维度进行区分。所以选择多个商品时，多个阶梯价政策用打折比较合理。
+		每个阶梯价政策是一档，问题： 
+			不同的档之间可以使用不同的政策，比如使用不同的降价方式
+			满足条件高的档 如果设置的降价方式导致实际优惠值比满足条件低的档的优惠值低 
+			这种情况是人工设置的问题 程序只按照条件去匹配 落档之后就确定了
+		优惠基准、是否组合匹配、是否排除特价商品是针对整个促销设置的
+		只有组合促销支持无配比
+		
+		
+		有效字段：
+		pmt_pcy_bl_level_dtl
+			levelgroup_id
+			filter_qty_matching		1 0
+		pmt_pcy_bl_levelfltr_dtl
+			levelgroup_id
+			#levelfltr_id   都是1 应该没用
+			begin_qty		满数量减的起始数量
+			end_qty			满数量减的截止数量 
+								如果不是最后一组 这个值是它后一档的起始数量-1 ?
+								如果是最后一组 这个值是99999999
+			begin_amount	满金额减的起始数量
+			end_amount		满金额减的截止数量
+		pmt_pcy_bl_levelfltr_sub_dtl
+			levelgroup_id
+			#levelfltr_id   	都是1 应该没用
+			dimension_type
+			dimension_value
+			dimension_content
+			item_num_id
+			discount
+			depreciate
+			depreciate_quota
+			discount_again
+			维度类型 值 减价相关字段 
+		
+		pmt_pcy_bl_exceptfltr_dtl
+		pmt_pcy_bl_exceptfltr_sub_dtl
+			排除组及排除组明细信息与普通组类似
+			如果设置了排除项，则每个档下都会添加对应的排除组及明细
+		pmt_pcy_bl_vip_dtl
+			levelgroup_id
+			vip_type_num_id		会员类型id   
+			如果设置了会员类型，则每个档下都会关联所有设置的会员类型。
+			即一个组可以有多个会员类型，对于组合促销，每个组下的会员类型都是一样的。
+			
+		pmt_pcy_level_group		促销政策 对应档 一个档就是一个政策
+			levelgroup_id
+			levelgroup_count    档数
+			#levelfltr_id   	都是1 应该没用
+			#levelfltr_count    都是1 应该没用 
+			fltr_begin_qty		条件起始数量
+			fltr_end_qty		条件截止数量
+			fltr_begin_amount	条件起始金额 
+			fltr_end_amount		条件截止金额
+			group_discount_again		1
+			group_filter_qty_matching	1有配比 0无配比
+			#group_just_one      0
+			vip_grade_string
+			...
+		pmt_pcy_item
+			item_num_id
+			item_name
+			label_series
+			sub_discount_again		优惠基准 
+			sub_pmt_type_num_id		减价方式 
+			sub_pmt_value			值 
+			
+		
+		优惠基准
+			1.吊牌价(原价)  2.折后价 3.实际售价
+			
+			吊牌价：
+				商品原价；
+				当选择该价格时，单品促销和变价取低；
+				集合促销和单品促销共存时，只执行单品促销；
+				店铺促销执行时不能存在单品促销或者集合促销
+			折后价：
+				适用于集合和店铺促销，选择该价格时，促销将按照单品、集合、店铺依次执行，即折上折
+			实际售价：
+				商品实际销售价格（调价后的价格），选择该价格时，单品促销即折上折；
+				集合、店铺促销执行时不能有上一等级促销（同吊牌价逻辑）
+
+		组合匹配
+			是 否
+			
+			勾选"是"时，指多组组合购买时，必须按照设定的组合比例，'成对'的购买才会享受折扣。
+			(例：A+B组合，只能购买N(A+B)时才会享受各组设定的折扣)
+			
+			勾选"否"时，无需按照比例，单组满足折扣数量即可享受折扣(即NA+MB购买也会享受各自的折扣)
+			
+		排除特价商品
+			是 否
+			销价 < 原价 * (特价门槛) % 不享受
+
+
+
+
+组合促销设置的政策
+	【是否组合匹配所描述的规则 与 实测组合促销的行为感觉不一致】
+
+	不是满足条件后，对所有商品进行减价
+	而是类似于每满足一次条件，这部分的商品进行减价
+	
+	有配比：
+	比如购买满两件打8折，如果买3件只有前2件打8折，如果买5件，只有前面4件打8折。前两件是按商品编号排序后的前两件，不会再去处理选择哪几个商品优惠值最大。
+	
+	无配比：
+	如果购买满两件打8折，如果买3件那么3件都打8折，如果买5件那么5件都打8折。
+
+
+有配比
+	配比的含义？
+		比如两个商品A B
+		判断所有商品数量之和或者金额之和是否满足阶梯价政策 
+		如果落档(只会落一个档)，
+			有配比就是只有条件的倍数的量的部分参与计算促销
+			无配比就是所有商品都参与计算促销
+			
+		
+
+核心逻辑【总结版】
+	组合促销
+		多个档要么都是按购买数量，要么都是按购买金额作为满足条件
+		多个档之间的减价方式可以不一样
+
+
+
+	遍历档
+		获取每个档对应的商品购买的总金额allAmount和总数量allQty
+			allQty = 同一个档下所有商品 QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2  之和
+			allAmount = 同一个档下所有商品 TRADE_AMOUNT 之和
+		校验总金额和总数量是否满足设定的档的金额起止条件或者数量起止条件，过滤出满足条件的档
+		
+		计算翻倍次数minMultiple：
+			(如果有配比
+				计算每个档的倍数multiple
+						allQty / fltrBeginQty 		即该档商品总数量/条件起始数量
+					或	allAmount / fltrBeginAmount 即该档商品总金额/条件起始金额
+					
+					如果multiple=0，则该档不满足，跳出循环
+					(说明该档下的购买总数量没达到这一档的条件起始数量，或者购买总金额没有达到这一档的条件起始金额)
+					
+					最小翻倍次数minMultiple=multiple
+					组合促销没有最大翻倍次数的概念，设为0		
+			如果没有配比	
+					没有翻倍的概念。最大、最小翻倍次数都为0 
+			)
+
+		计算 ：
+		如果有配比 
+			遍历组，计算每个商品的促销金额
+				获取单个商品的可用数量：
+					aval_qty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2
+				配比条件下的数量：	
+					初始qty = minMultiple * fltrBeginQty   【说白了 这里的qty就是表示可以参数促销的总数量】
+															【也就是说 这是每满多少进行减价 不是满足条件后对所有商品减价】
+				share_qty取aval_qty和qty中的较小值
+				
+				计算当前商品使用当前组后的交易价pcy_price，就是按照优惠基准和减价设置进行计算
+				计算促销金额
+					pcy_amount = (TRADE_PRICE - pcy_price) * share_qty
+				如果促销金额大于0，说明当前商品适用该档
+					更新商品的中间值itemDetail信息
+						使用量：SINGLE_GRADE_USE_QTY.USE_QTY_2 += share_qty
+						交易价：TRADE_PRICE = TRADE_PRICE - pcy_amount / QTY
+						交易量：TRADE_AMOUNT = TRADE_AMOUNT - pcy_amount
+					封装数据
+					qty = qty - share_qty ，如果qty>0，即翻倍数量减去促销使用的数量之后还有，则继续下一次循环。
+		如果没有配比 
+			遍历组，计算单个商品的促销金额
+				获取单个商品的可用数量：
+					aval_qty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2
+				计算当前商品使用当前组后的交易价pcy_price，就是按照优惠基准和减价设置进行计算
+				计算促销金额
+					pcy_amount = (TRADE_PRICE - pcy_price) * qty	
+				如果促销金额大于0，说明当前商品适用该档	
+					更新商品的中间值itemDetail信息
+						使用量：SINGLE_GRADE_USE_QTY.USE_QTY_2 += share_qty
+						交易价：TRADE_PRICE = TRADE_PRICE - pcy_amount / QTY
+								#COM_TRADE_PRICE = 新TRADE_PRICE
+						交易量：TRADE_AMOUNT = TRADE_AMOUNT - pcy_amount
+					封装数据
+			
+
+
+
+-------------------
+
+			
+
+calculatePromotionGroupToLevelRelationshipOneToMoreHavaMatching 一档多组有配比
+	调用了calculatePromotionByGroupToLevelType 降价核心 
+
+calculatePromotionByGroupToLevelType   降价核心
+	遍历组
+		调用countGroupPromotionPrice
+
+
+countGroupPromotionPrice  统计促销价格 返回List<Map<String,Object>>  【有配比】
+	checkSingleItemPass校验条件组数据是否可以使用  (通用的，参考类型1中此处逻辑)
+		(aval_qty >= sub_qty && aval_qty > 0D && sub_amount == 0D) || 
+		(aval_amount >= sub_amount && aval_amount > 0D && sub_qty == 0D)
+		
+	此处计算数量
+		qty = minMultiple * fltrBeginQty   最小翻倍数 * 条件起始金额   ？？？
+
+		aval_qty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2
+		
+		share_qty取qty和可用数量aval_qty中的小值
+		
+	findPcyPrice获取交易价格 	
+		如果打折基准是1(零售价)
+			basePrice=RETAIL_PRICE
+		如果打折基准是2(开票价基准)
+			basePrice=TRADE_PRICE
+		如果打折基准是3(标准价)               		【基准感觉有问题】
+			basePrice=STANDARD_PRICE
+			
+		如果折扣方式是1(打折)
+			pcy_price=basePrice*sub_pmt_value  基准价*折扣值 
+		如果折扣方式是2(减价)
+			pcy_price=basePrice-sub_pmt_value  基准价-折扣值 
+		如果折扣方式是3(指定价格)
+			如果指定价格大于TRADE_PRICE，不满足促销，pcy_price设个负值后续处理
+			否则pcy_price=subPmtValue
+			
+		返回最终的交易价格pcy_price
+
+	计算促销扣减金额【这里没有限购？？？】
+		pcy_amount=(TRADE_PRICE - pcy_price)*qty
+		
+	如果促销扣减总金额大于0，即适用促销					
+		更新商品使用数量(促销类型不是1 这个数量才会更改)：
+			如果该促销等级配置了不能叠加享受的话	
+				设置已使用的数量信息
+				即重新设置USE_QTY_{gradeId}值：原值(初始值是0)再加上qty
+		
+		TRADE_PRICE = TRADE_PRICE - pcy_amount/QTY			计算新的交易价
+				把促销扣掉的总金额分摊到所有商品上
+				(因为一个商品买的数量可能超出了限购数 只有限购数之内的数量享受促销优惠)
+				新的交易价 = 原交易价 - 分摊到单个商品的促销扣减金额
+		
+		COM_TRADE_PRICE = TRADE_PRICE
+		#TRADE_AMOUNT = TRADE_PRICE * QTY					新的交易金额
+		#		新的交易金额 = 新交易价 * 数量	
+		
+		TRADE_AMOUNT = TRADE_AMOUNT - pcy_amount
+				新的交易金额 = 旧的交易金额 - 促销扣减金额
+				【有配比的话 后续可能还有计算】
+				

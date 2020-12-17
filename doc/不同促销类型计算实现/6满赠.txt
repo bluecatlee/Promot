@@ -1,0 +1,152 @@
+【满赠】
+	type_num_id=6
+		【满金额赠】grade=2,view_num_id=200604
+		【满数量赠】grade=2,view_num_id=200601
+		【店铺满赠-用户任选明细数量组合】grade=4 view_num_id=400601
+		【店铺满赠-用户任选明细金额组合】grade=4 view_num_id=400604
+		满赠可以设置很多条件，基本支持单品可以设置的所有条件
+		比如时段、会员等级、会员限购、优惠券、参与商品范围(全场、部分商品、指定不参与)
+		
+		无配比，或者说没有配比的概念？通过翻倍次数执行
+		最大翻倍次数可设置
+		
+		满赠的条件是按照档的起止金额/数量条件来的
+		
+		只执行一档 
+		
+		档的条件一样的多个档，可以对相同的商品设置。
+		也就是说同一个商品购买同样的数量/金额时可以同时适用多个档，如果只执行一档，那最终执行的档取决于他们的排序
+		
+		多个档 截止金额/数量有问题？
+		排除商品在普通商品明细中没有数据？？？？？与单品不一样？
+		
+		
+		有效字段：
+		pmt_pcy_bl_level_dtl
+			levelgroup_id
+			begin_qty 
+			end_qty
+			begin_amount
+			end_amount
+			multiple_sign	9999  最大翻倍次数 可配置
+		pmt_pcy_bl_levelfltr_dtl
+			levelgroup_id
+			levelfltr_id
+			begin_qty 
+			end_qty
+			begin_amount
+			end_amount
+		pmt_pcy_bl_levelfltr_sub_dtl
+			..
+		pmt_pcy_bl_giftgroup_dtl
+			type_num_id		赠送类型 
+			gift_qty		赠品可选次数 不是满足后赠送的个数
+		pmt_pcy_bl_giftgroup_sub_dtl	
+			item_num_id
+			qty				赠品数量
+
+		pmt_pcy_level_group
+			levelgroup_id
+			group_begin_qty 
+			group_end_qty
+			group_begin_amount
+			group_end_amount
+		pmt_pcy_gift_item_lable	
+			levelgroup_id
+			gift_group_id	1 实际买赠只有一种赠品规则，所以都是1
+			gift_qty		赠品可选次数 
+			qty				赠品数量 	
+			
+		
+
+	
+赠品可选的含义？
+		实测不可选
+	
+满赠的起止金额/数量条件从档获取 买赠是从组中获取的  区别在哪？
+
+无配比且最大翻倍次数groupMultipleSign=9999  可设置翻倍次数值
+
+只执行一档
+
+最终赠送的商品数 = 翻倍次数 * 赠送数量 * 可选次数
+
+
+calculatePromotionGroupToLevelRelationshipOneToOne	一档一组
+
+	遍历组
+		countMeetPrice
+			获取每个档对应的商品购买的总金额allAmount和总数量allQty  【这个方法是通用的】
+				allQty = 同一个档下所有商品 QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2  之和
+				allAmount = 同一个档下所有商品 TRADE_AMOUNT 之和
+				
+			校验总金额和总数量是否满足设定的档的金额起止条件或者数量起止条件，过滤出满足条件的档
+				注意 这里用的是：【如果是一档一组 其实用这个和用条件起始数量/金额 是不是没啥区别】
+					group_begin_qty		分组起始数量
+					group_end_qty		分组截止数量 
+					group_begin_amount	分组起始金额
+					group_end_amount	分组截止金额
+			
+			获取促销政策的分组起始数量groupBeginQty和分组起始金额groupBeginAmount
+				和最大翻倍次数groupMultipleSign(9999 可配置)			
+			计算翻倍次数
+				cishu = Min(allQty/begin_qty, group_multiple_sign)   或
+				cishu = Min(allAmount/begin_amount, group_multiple_sign)
+			如果是满金额
+				计算可参与满减的金额：
+				shouldShareAmount = begin_amount * cishu 
+				
+			如果cishu>0 且 shouldShareAmount>0,遍历组下商品
+				获取单个商品的可用数量：
+					couldUseQty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2
+				amount = couldUseQty * TRADE_PRICE
+				
+				计算满足shareAmount需要该商品的数量：				【就是可以翻倍的最大商品数】
+				needQty = Ceil(shouldShareAmount / TRADE_PRICE)     【向上取整】
+				最终的使用数量
+				useQty = Min(needQty, couldUseQty)
+				
+				更新商品的中间值itemDetail信息
+					如果不可以叠加享受的话：
+						使用量：SINGLE_GRADE_USE_QTY.USE_QTY_2 += useQty	
+					
+				封装itemMap
+					{
+						"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+						"MULTIPLE":	cishu					#翻倍次数
+						"SERIES":							#小票商品行号
+					}
+				再封装到list中 以List<Map<String, Object>> itemList 返回
+					
+					
+				重新计算可参与满减的金额
+					shouldShareAmount = shouldShareAmount - useQty * tradePrice
+					如果shouldShareAmount<0 会退出循环
+					
+				
+				
+	如果itemList不为空
+		#遍历它
+		#	获取翻倍次数cishu(每次遍历下的每个map中的翻倍次数都是一样的值)
+		#	并将元素(map类型)中的MULTIPLE属性移除
+				
+		最终设置返回结果的resGiftInfoInfoList
+			元素是Map
+				{
+					"RESERVED_NO":
+					"GRADE":
+					"LEVELGROUP_ID":
+					"RESERVED_GIFT_QTY":			// 赠品数量 就等于翻倍次数 每翻一倍就需要赠送一次
+					"TYPE_NUM_ID":
+					"EXPIRE_TIME":					// 失效时间就是endDtme
+					"TICKET_ID":
+					"ITEM_INFO": 					// 主品信息
+						{
+							"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":	{itemNumId}_{locPtyItemId}
+							"DEDUCT_AMOUNT":		// 商品的总的折扣金额(乘了数量)
+							"SERIES":	{orderLineSeries}
+							"TRADE_PRICE":			// 交易价 计算完促销之后的
+						}
+					"DESCRIPTION":
+				}					
+	

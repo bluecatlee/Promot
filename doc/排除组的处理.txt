@@ -1,0 +1,34 @@
+计算时的处理
+
+
+
+ExceptFltr
+	List<Long> itemNumIds
+	Map<Integer,List<ExceptDimension>> exceptDimensionGroups	维度组 --> 排除维度列表的映射
+	
+ExceptDimension
+	String dimensionName      // 维度设置中的OBJECT_NAME 这个字段的值与CartItemDimension中的字段的值对应
+	Long dimensionValue
+	
+	
+CartItemDimension			// 根据商品id查出的商品的几个维度字段的信息 用于后续进行校验
+	itemNumId
+	brandId
+	divNumId
+	ptyNum1
+	ptyNum2
+	ptyNum3
+	
+	
+getExceptFltr	根据排除组封装数据到ExceptFltr
+		如果维度类型不等于0，即不是商品维度
+			根据维度类型去pmt_pcy_dimension_set表查询维度设置
+			按维度组分组 每一组的列表数据是维度查询名和维度值
+			数据设置到exceptDimensionGroups中
+			
+		如果维度类型是0且商品编号不为0
+			添加商品编号到itemNumIds列表中
+			
+			
+checkCartItemIsExceptItem	校验购物车中的商品是否在排除的商品内
+		

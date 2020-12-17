@@ -1,0 +1,134 @@
+【买赠】
+	【无交互买赠】type_num_id=3 view_num_id=200301
+	
+	满数量送赠品，赠品不可选(用户不可选？)
+		只能选择部分商品，即选择特定的主商品，赠送特定的赠品
+		无法设置限购
+		不管有几个档(限制最多5个)，每个档可以设置不同的主商品，但是每个档的赠品都是一样的(赠品只设置一次)
+		每个档下的主商品不能有重复，所以只执行一档还是所有档都执行没影响，因为每个档的主商品不一样。
+		没有配比，或者说没有配比的概念？
+		最大翻倍次数=1  就是不能翻倍执行了
+		设置赠品下的赠送价格字段没有用？depreciate=0
+	
+	
+	有效字段：
+	pmt_pcy_bl_level_dtl
+		levelgroup_id
+		multiple_sign			翻倍次数默认1？
+	pmt_pcy_bl_levelfltr_dtl
+		levelgroup_id
+		#levelfltr_id
+		begin_qty				买几个主品赠送赠品
+	pmt_pcy_bl_levelfltr_sub_dtl
+		levelgroup_id
+		#levelfltr_id		都是1 应该没用
+		#qty				无用 只要档内商品总数量满足即可
+		..   组明细表中有效字段都是类似的
+	pmt_pcy_bl_vip_dtl
+		levelgroup_id
+		vip_type_num_id		会员类型id   
+		如果设置了会员类型，则每个档下都会关联所有设置的会员类型。
+	pmt_pcy_bl_giftgroup_dtl		一个赠品一个组，一个档下可以有多个赠品组
+		levelgroup_id	
+		gift_group_id	赠品组id  都是1  应该没用 
+		gift_qty		赠品可选次数  写死1  就是只送一次吧。。
+	pmt_pcy_bl_giftgroup_sub_dtl
+		levelgroup_id	
+		gift_group_id	赠品组id  
+		item_num_id 
+		qty				赠品数量
+		
+	pmt_pcy_level_group
+		levelgroup_id
+		levelfltr_id
+		levelfltr_count
+		fltr_begin_qty	条件起始数量 
+		#fltr_end_qty	条件截止数量 99999	无用
+		group_multiple_sign	最大翻倍次数 1   实际上就是不能翻倍执行了
+		vip_grade_string
+		group_jus_one	 1：仅执行一档，0：全执行			#买赠写死的0？
+	pmt_pcy_item
+		所有促销的item表基本都是一样的 这个表中的qty没用
+		
+	pmt_pcy_gift_item_lable	赠品标签表 审核后生成
+		levelgroup_id
+		gift_group_id	1 实际买赠只有一种赠品规则，所以都是1
+		gift_qty		赠品可选次数 
+		qty				赠品数量 
+		#dtl_just_one	1  仅执行一档？
+		#discount		
+		type_num_id     0必须送,1赠完为止,2整体限量赠送
+
+
+
+
+满数量买赠   促销类型是3
+无交互买赠
+
+买赠是个简化的满赠
+
+
+促销类型是3的核心计算逻辑调用的促销类型是4的代码
+
+无配比且限制了最大翻倍次数groupMultipleSign=1，即买赠只能翻一倍
+
+只执行一档
+
+calculatePromotionGroupToLevelRelationshipOneToOne 一档一组
+
+	遍历组
+		有交互买赠一档一组计算促销cauclateGiftPromotion
+			获取每个档对应的商品购买的总金额allAmount和总数量allQty  【这个方法是通用的】
+				allQty = 同一个档下所有商品 QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2  之和
+				allAmount = 同一个档下所有商品 TRADE_AMOUNT 之和
+			校验总金额和总数量是否满足设定的档的金额起止条件或者数量起止条件，过滤出满足条件的档
+			
+			获取促销政策的条件起始数量fltrBeginQty和最小翻倍次数groupMultipleSign(死值1)
+			计算翻倍次数
+				cishu = Min(allQty/begin_qty, group_multiple_sign)
+			如果cishu>0
+				分摊参与促销的数量
+					shareQty = cishu*begin_qty		【就是参与赠送赠品的所有商品数量】
+					
+					如果shareQty>0，遍历组下商品
+						获取单个商品的可用数量：
+							couldUseQty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2
+							useQty = Min(couldUseQty, shareQty)
+							
+						更新商品的中间值itemDetail信息
+							使用量：SINGLE_GRADE_USE_QTY.USE_QTY_2 += useQty	
+						
+						封装itemMap
+							{
+								"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+								"MULTIPLE":	cishu					#翻倍次数
+								"SERIES":							#小票商品行号
+							}
+						再封装到list中 以List<Map<String, Object>> itemList 返回	
+							
+						shareQty = shareQty - useQty  如果shareQty>0 进行下一次循环。	
+						
+	如果itemList不为空
+		#遍历它
+		#	获取翻倍次数cishu(每次遍历下的每个map中的翻倍次数都是一样的值)
+		#	并将元素(map类型)中的MULTIPLE属性移除
+				
+		最终设置返回结果的resGiftInfoInfoList
+			元素是Map
+				{
+					"RESERVED_NO":
+					"GRADE":
+					"LEVELGROUP_ID":
+					"RESERVED_GIFT_QTY":			// 赠品数量 就等于翻倍次数 每翻一倍就需要赠送一次
+					"TYPE_NUM_ID":
+					"EXPIRE_TIME":					// 失效时间就是endDtme
+					"TICKET_ID":
+					"ITEM_INFO": 					// 主品信息
+						{
+							"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":	{itemNumId}_{locPtyItemId}
+							"DEDUCT_AMOUNT":		// 商品的总的折扣金额(乘了数量)
+							"SERIES":	{orderLineSeries}
+							"TRADE_PRICE":			// 交易价 计算完促销之后的
+						}
+					"DESCRIPTION":
+				}	

@@ -1,0 +1,163 @@
+【单品促销】grade=1，type_num_id=1
+	是可以设置不同的渠道的
+	可以设置是否使用优惠券
+	可以设置商品参与范围(全场/部分参与/部分不参与)		
+		选择部分参与
+			可以针对品牌、分类(事业部+三级)、指定单品进行选择(维度：品牌、事业部、大类、中类、小类、商品)
+		选择部分不参与
+			可以针对品牌、分类(事业部+三级)、指定单品进行排除		
+
+	可以针对不同的会员或者是所有用户
+	可以设置是否会员限购(选择所有用户时不能设置会员限购)   【问题：具体限制规则在哪？】
+
+	可以设置促销开始时间和结束时间
+	可以设置促销时段以及促销时段的循环类型(默认/周循环/月循环)
+
+	【单品折扣】view_num_id=1
+						
+
+	【等级促销】view_num_id=100101
+				必须针对不同等级来设置，不能针对所有用户
+				
+	【时段促销】view_num_id=100102
+				必须设置促销时段以及促销时段的循环类型
+				
+				
+	设置直减价方式(需要对已选择的所有维度进行设置，如果设置了不同的会员等级，还需要针对不同的分档进行选择)
+		一口价：按固定金额销售
+		折扣：按百分比进行打折
+		直减：减去一定金额
+
+	设置额外限制条件								     【问题：额外限制条件是否就是直减价方式的基准？】
+		优惠基准的选择：吊牌价(原价)/实际售价
+		
+	
+	单品促销如果不设置多个会员等级(全部除外)，只有一个档
+
+
+
+
+
+pmt_pcy_level_group
+	
+	对于单品促销，下面几个字段都没有用
+
+	#group_discount_again	优惠基准	1-打折(0,+OO),2-减价(0,+OO),3-指定价格(0,+OO) ？
+	#group_just_one			1仅执行一档 0全执行			默认0？单品不用这个字段
+
+	#单品促销 这三个用的是item表的对应字段 不是level_group表的
+	#sub_pmt_type_num_id	折扣方式 1-打折(0,+OO),2-减价(0,+OO),3-指定价格(0,+OO)  【促销类型是1时使用】
+	#sub_pmt_value		折扣值													【促销类型是1时使用】
+	#sub_discount_again	打折基准 
+	
+	buy_limit_type			限购类型 0无限购 1有限购
+	buy_limit_per_person_per_day	每人每日限购件数
+	buy_limit_per_person			活动期间每人限购总数
+
+
+PromotionDealResult calculatePromotionGroupToLevelRelationshipOneToOne	一档一组
+	PromotionDealResult
+		resGiftInfoInfoList			赠品列表
+		resTicketGiftInfoInfoList	赠券列表
+		resDeductInfoList			商品折扣列表			【只有这个有值】
+		resCashCouponInfoList		现金券列表
+
+
+
+	calculatePromotionByGroupToLevelType 调用降价核心方法
+		遍历所有组
+			累加所有组的扣减总金额total_deduct_amount
+			
+			如果是一档一组无配比或者是一档多组无配比
+			
+				countGroupPromotionPrice统计促销价格 返回List<Map<String,Object>>
+					每个Map中的数据：ITEM_NUM_ID_AND_LOC_PTY_NUM_ID		{itemNumId}_{locPtyItemId}
+									 DEDUCT_AMOUNT						pcy_amount促销扣减总金额
+									 SERIES								{orderLineSeries}
+									 TRADE_PRICE						折后价、支付价
+				
+					checkSingleItemPass判断条件组数据是否可以使用  【通用的】
+						【促销类型1 2时 sub_qty和sub_amount都是0 所以此处校验一定会通过】
+						可用数量 aval_qty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_{gradeId}
+						可用金额 aval_amount = TRADE_AMOUNT
+						满足：
+						(aval_qty >= sub_qty && aval_qty > 0D && sub_amount == 0D) || 
+						(aval_amount >= sub_amount && aval_amount > 0D && sub_qty == 0D)
+						即可使用
+					获取限购信息
+						buyLimitSign		是否满足限购 true false
+						spareBuyLimitQty	剩余限购数量
+						
+						qty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_{gradeId}   
+						
+					【计算单个商品按照促销适用后计算出的实际交易价格】	
+					findPcyPrice获取交易价格 
+						从缓存中获取折扣信息 【此处缓存的商品折扣信息是促销审核的时候写到redis中的数据】
+							Key：pcydiscount.i_{itemNumId}_r_{reservedNo}_s_{series}
+								 pcydiscount.i_0_r_{reservedNo}_s_{series}				(如果上面没取到 则以商品id为0再次获取)
+							返回subDiscountAgain(打折基准)、subPmtTypeNumId(折扣方式)、subPmtValue(折扣值)
+						如果缓存中没查到
+							查表pmt_pcy_item对应的item_num_id的信息 注意是【pmt_pcy_item】表
+							【此处逻辑有问题 不应该查表】 
+							
+						如果打折基准是1(零售价)
+							basePrice=RETAIL_PRICE
+						如果打折基准是2(开票价基准)
+							basePrice=STANDARD_PRICE
+						如果打折基准是3(标准价)               【此处有问题！！！！】
+							basePrice=POSITIVE_TRADE_PRICE
+							
+						如果折扣方式是1(打折)
+							pcy_price=basePrice*sub_pmt_value  基准价*折扣值 
+						如果折扣方式是2(减价)
+							pcy_price=basePrice-sub_pmt_value  基准价-折扣值 
+						如果折扣方式是3(指定价格)
+							pcy_price=subPmtValue
+							
+						返回最终的交易价格pcy_price
+
+					【计算单个商品折扣 促销的扣减金额用实际执行售价减去促销价】
+					如果满足限购且数量小于等于剩余限购数量
+						促销扣减总金额：
+							pcy_amount=(TRADE_PRICE - pcy_price)*qty
+						
+					如果不满足限购
+						pcy_amount=0
+					如果满足限购但是购买数量大于剩余限购数量
+						pcy_amount=(TRADE_PRICE - pcy_price)*spareBuyLimitQty
+						
+					【比较商品的促销折扣，如果小于零的话就不适用促销。就是说促销价可能比实际执行价高，这个时候就不使用促销了】
+					如果促销扣减总金额大于0，即适用促销					
+						更新商品使用数量(促销类型不是1 这个数量才会更改)：
+							如果该促销等级配置了可以叠加享受的话	
+								设置已使用的数量信息
+								即重新设置USE_QTY_{gradeId}值：原值(初始值是0)再加上qty
+						
+						TRADE_PRICE = TRADE_PRICE - pcy_amount/QTY			计算新的交易价
+								把促销扣掉的总金额分摊到所有商品上
+								(因为一个商品买的数量可能超出了限购数 只有限购数之内的数量享受促销优惠)
+								新的交易价 = 原交易价 - 分摊到单个商品的促销扣减金额
+						
+						COM_TRADE_PRICE = TRADE_PRICE
+						TRADE_AMOUNT = TRADE_PRICE * QTY					新的交易金额
+								新的交易金额 = 新交易价 * 数量
+						
+		最终设置返回结果的resDeductInfoList
+			元素是Map
+				{
+					"RESERVED_NO":
+					"GRADE":
+					"LEVELGROUP_ID":
+					"TOTAL_DEDUCT_AMOUNT":			// 折扣总金额 所有商品的折扣总金额
+					"TYPE_NUM_ID":
+					"EXPIRE_TIME":					// 失效时间就是endDtme
+					"TICKET_ID":
+					"ITEM_INFO": 					// 单个商品的折扣信息
+						{
+							"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":	{itemNumId}_{locPtyItemId}
+							"DEDUCT_AMOUNT":		// 商品的总的折扣金额(乘了数量)
+							"SERIES":	{orderLineSeries}
+							"TRADE_PRICE":			// 交易价 计算完促销之后的
+						}
+					"DESCRIPTION":
+				}

@@ -1,0 +1,74 @@
+List<SdBlSoTmlDtl> 订单商品列表，也可以看成购物车
+|
+|
+List<CalculatePromotionItem> 计算促销的商品(简单的bean的转换 结构是一致的)
+	series				来源行号，就是商品明细的行号
+	itemNumId
+	qty
+	locPtyNumId
+	retailPrice
+	standardPrice
+	tradePrice
+	tradeAmount
+	
+	
+List<PromotionPmtPcyItemLable>	促销标签【门店信息获取所有的促销，pmt_pcy_org内联pmt_pcy_item和pmt_pcy_level_group进行查询】	
+	
+	
+List<CalculatePromotionCartItemWithLable>		带标签的用于计算促销的商品
+	与CalculatePromotionItem结构类似，多了一个PromotionPmtPcyItemLable类型的字段
+	
+	这个list是在循环List<PromotionPmtPcyItemLable>的基础上 生成的
+	即已促销信息为主，list中可能会包含多个商品编号一样，但是促销不一样的元素
+	
+	
+	
+CalculatePromotionInitLable		计算前的初始化数据
+	Map<String, PromotionPmtPcyItemLable>  lableDetailMap	// 标签号 -> 促销 
+	Map<String,String> reservedNoAndTypeNumIdMap			// 促销编号 -> 促销类型
+	Map<String,Long> reservedNoAndGradeIdMap				// 促销编号 -> 促销优先级
+	Map<String, JSONObject> itemDetailMap					// 商品信息
+		K：{itemNumId}_{locPtyNumId}
+		V：{
+				"QTY": 
+				"SINGLE_GRADE_USE_QTY": 
+					{
+						// "USE_QTY_{gradeNumId}": 0			// 促销除了等级是1  其他等级不同促销使用的数量
+																// 商品数量中的不同部分可能适用多个促销 后续计算的时候存入
+					}
+				"COM_TRADE_PRICE":		   // 当前的交易价格(初始值取自standard_price)
+										   // 如果促销可以叠加，交易价基准需要按前一次的结果
+				"STANDARD_PRICE":
+				"TRADE_PRICE":				// 交易价 这个价格也是最后买的价格 
+				"RETAIL_PRICE":
+				"TRADE_AMOUNT":				// 交易金额 最终值就是最终交易价*数量
+				"POSITIVE_TRADE_PRICE":		// 值取自retail_price  ？？？？
+			  }
+	
+	
+	
+	// Map<促销优先级,Map<促销政策号,Map<促销档,Map<促销组,List<组商品信息>>>>
+	Map<Long,Map<String,Map<String,Map<String,List<String>>>>>  gradeTypeIdAndPcyDetailMap
+																
+	Map<String, String> groupFltMap					// 其他信息 如档中组数 促销类型
+		K：reserveNo
+		V：{
+				"{reservedNo#type_num_id}": {typeNumId},
+				"{reservedNo}#{levelgroup_id}": {levelfltr_count},							#档内组数
+				"{reservedNo}#{levelgroup_id}#qty_matching", {group_fitler_qty_matching}	#配比 
+			}
+	
+	
+单个促销政策计算促销
+		Map<String, Map<String, List<String>>> singleReservedPcyDetail,   // 这个参数是上面的gradeTypeIdAndPcyDetailMap中的
+			CalculatePromotionInitLable initInfo, String reservedNo, Long gradeId
+			
+		遍历每个促销政策
+			遍历当前促销政策下的所有档
+			
+			一档多组
+			
+			一档一组
+				校验 
+				配比 
+					

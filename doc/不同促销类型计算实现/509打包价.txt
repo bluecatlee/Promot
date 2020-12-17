@@ -1,0 +1,190 @@
+【打包价】
+	type_num_id=509
+	数量任选view_type_num_id=250902   集合内商品任满N件，总价(打包价)按X元出售
+	套装出售view_type_num_id=250901
+	【数量任选和套装出售是一样的，可能是套装出售改过变成只能设置一个商品集合了】
+	
+	有翻倍
+	有配比，即只会是N的倍数的数量参与促销
+	一档一组
+	
+	关键字段
+	pmt_pcy_bl_level_dtl
+		levelgroup_id
+		pack_price			打包价
+		multiple_sign		最大翻倍次数
+		filter_qty_matching	是否有配比 1
+		
+		standard_price_sign	排除特价商品
+		group_begin_discount特价商品门槛
+	pmt_pcy_bl_levelfltr_dtl
+		levelgroup_id
+		begin_qty
+		end_qty
+	pmt_pcy_level_group
+		levelgroup_id
+		fltr_begin_qty
+		fltr_end_qty
+		group_pack_price
+		group_filter_qty_matching
+		group_multiple_sign
+		
+	基本逻辑：
+		计算翻倍次数
+			翻倍次数multiple = 档下商品购买总数量 / fltr_begin_qty
+			如果有翻倍次数限制，取小的
+		
+		计算每组的打包数(可打包的数量)
+			currentPacks = currentPackSum(每组商品总数量) / fltrBeginQty
+			maxPacks = Min(currentPacks, minMultiple)
+			(注意: 可打包数不能超过最大翻倍次数)
+		
+		计算每组的总的打包价
+			totalGroupPackagePriceAmount = groupPackPrice * maxPacks
+				
+		计算每组在打包之后多余的数量以及参与打包的数量的交易金额totalPackTotalAmount
+			overQty = currentGroupQty - levelQty(即fltrBeginQty) * maxPacks
+			如果刚刚好没有多余，说明该组商品都参与打包了，此时参与打包的数量的交易总金额就是QTY*TRADE_PRICE之和
+			如果有多余，计算参与打包的数量的交易总金额 
+				【这里分配参与打包的数量是一个反向的逻辑：把多余的数量分配到某个商品上。。
+					由于商品按价格降序排序，所以多余数量是优先分配到价格高的商品上，也就是价格低的商品优先参与打包。
+					直接按照价格升序，然后去分配打包数量更容易理解吧。。】
+				
+		计算每组的优惠金额
+			totalDeductAmount = totalPackTotalAmount - totalGroupPackagePriceAmount
+			优惠金额就是参与打包的数量的交易总金额减去总的打包价
+			
+		分摊优惠总金额并计算单个商品的折后价
+			就是按照单个商品参与打包的交易金额占所有参与打包的商品数量的交易金额的比例进行分摊，
+			先把优惠金额分摊到商品上，商品再通过分摊到的优惠金额除以实际数量计算优惠价
+			折后价 = 原交易价 - totalDeductAmountPerItem(该商品分摊的优惠金额) / QTY 
+			【参与打包的商品会参与优惠金额的分摊】
+			
+---------------------------------
+代码思路
+		
+		获取每个组对应的商品购买的总金额allAmount和总数量allQty  【这个方法是通用的】
+				allQty = 同一个组下所有商品 QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2  之和
+				allAmount = 同一个组下所有商品 TRADE_AMOUNT 之和
+				
+		校验总金额和总数量是否满足设定的档的金额起止条件或者数量起止条件，过滤出满足条件的档
+			注意 这里用的是：fltr_begin_qty、fltr_end_qty
+			
+		如果有配比group_filter_qty_matching=1
+			求倍数										【求每个组的倍数 然后取小的？】	
+				multiple = allQty/fltr_begin_qty
+				
+				
+		遍历组 
+			统计组下所有商品数量之和
+			currentPackSum = QTY 之和
+			遍历组下的商品
+				itemDetail中追加ITEM_NUM_ID信息
+				itemDetail设置到List<JSONObject> list中
+			list排序，按照STANDARD_PRICE降序排序
+			
+			组装数据sortMap   【组、每组的总数、起始条件 --> 组下所有商品】
+				K: {levelfltrId}#{currentPackSum}#{fltrBeginQty}
+				V: list
+			
+			如果currentPackSum >= fltrBeginQty && fltrBeginQty != 0，即组下的商品总数量满足条件
+				计算当前组的打包数：
+				currentPacks = currentPackSum / fltrBeginQty
+				如果maxPacks=0
+					maxPacks = currentPacks  
+				否则 
+					maxPacks = Min(maxPacks,currentPacks)  
+				
+		如果maxPacks<=0
+			直接返回
+		如果maxPacks>minMultiple
+			maxPacks=minMultiple
+			
+		计算总的打包价 = 打包价 * 打包数 
+			totalGroupPackagePriceAmount = groupPackPrice * maxPacks
+			
+		计算优惠信息cauclateDeductPromotionFor509
+			遍历sortMap(组级数据) 
+				当前组的总数量：
+				currentGroupQty = currentPackSum
+				条件起始数量：
+				levelQty = fltrBeginQty
+				如果currentGroupQty >= levelQty * maxPacks
+					总的多余数量：
+						overQty = currentGroupQty - levelQty * maxPacks
+					如果overQty > 0	【如果打包之后有多余数量】
+						遍历组下的商品数据：	
+							如果overQty - QTY >= 0
+								overQty = overQty - QTY   	分摊多余的数量
+								继续下次循环
+							否则
+								如果overQty=0
+									packQty = QTY
+								否则 
+									packQty = QTY - overQty
+									overQty = 0d
+								singlePackTotalAmount = TRADE_PRICE * packQty	
+								totalPackTotalAmount += singlePackTotalAmount    (totalPackTotalAmount是所有打包数之和)
+								封装数据 把当前商品的打包数量放到packageMap中
+								packageMap.put(ITEM_NUM_ID的值, packQty)
+					否则 【所有数量刚好够打包】
+						遍历组下的商品数据 
+							singlePackTotalAmount = QTY * TRADE_PRICE
+							totalPackTotalAmount += singlePackTotalAmount
+							封装数据 把当前商品的打包数量放到packageMap中
+							packageMap.put(ITEM_NUM_ID的值, QTY)
+							
+			计算优惠总金额：参与打包的商品交易金额之和 - 打包价之和(打包价的整数倍)				
+			totalDeductAmount = totalPackTotalAmount - totalGroupPackagePriceAmount				
+				
+			如果totalDeductAmount<=0,直接返回
+			
+			--分摊--
+			
+			packageSize = packageMap.size()
+			
+			遍历组下的商品 
+				更新商品的中间值itemDetail信息
+					如果不可以叠加享受的话：
+						使用量：SINGLE_GRADE_USE_QTY.USE_QTY_2 += useQty(来源于QTY)    【数量全部使用了？】
+						
+				如果packageMap包含itemDetail.getString("ITEM_NUM_ID")，即有优惠	
+					商品的打包数量
+					packQty = packageMap.get(itemDetail.getString("ITEM_NUM_ID"))
+					单个商品参与打包的交易金额之和占所有参与打包的商品交易金额之和的比例
+					rate = TRADE_PRICE * packQty / totalPackTotalAmount
+					
+					计算商品的折扣金额：
+						deductAmountPerItem = totalDeductAmount * rate   【说白了就是按交易金额的比例进行分摊】
+						halfDeductAmountPerItem += deductAmountPerItem
+						totalDeductAmountPerItem = deductAmountPerItem
+						(注意，考虑到计算的误差，最后一个包分摊的折扣金额是剩余折扣金额)
+						
+					单个商品平摊的促销价格(商品的优惠金额/数量) 
+						deductAmountPer = totalDeductAmountPerItem / QTY 
+					商品的交易价
+						新TRADE_PRICE = 旧TRADE_PRICE - deductAmountPer
+						新COM_TRADE_PRICE = 新TRADE_PRICE
+						TRADE_AMOUNT = oldTradePrice * qty - totalDeductAmountPerItem
+					
+					封装deductItemInfo
+						{
+							"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+							"DEDUCT_AMOUNT":					totalDeductAmountPerItem
+							"SERIES":							#小票商品行号
+							"TRADE_PRICE":						新TRADE_PRICE
+						}
+					再封装到list中 以List<Map<String, Object>> 	
+						
+				否则 
+					..不变
+					封装deductItemInfo
+						{
+							"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+							"DEDUCT_AMOUNT":					0
+							"SERIES":							#小票商品行号
+							"TRADE_PRICE":						新TRADE_PRICE
+						}
+					再封装到list中 以List<Map<String, Object>> 		
+						
+					

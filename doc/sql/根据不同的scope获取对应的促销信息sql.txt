@@ -1,0 +1,101 @@
+SELECT
+	org.reserved_no,
+	type_num_id,
+	begin_day,
+	end_day,
+	begin_tm,
+	end_tm,
+	description,
+	mg_unit_num_id,
+	platform_ids,
+	item_num_id,
+	org.create_dtme,
+	last_updtme,
+	levelgroup_id,
+	levelfltr_id,
+	levelfltr_count,
+	depreciate,
+	sub_unit_num_id,
+	fltr_begin_qty,
+	fltr_end_qty,
+	fltr_begin_amount,
+	fltr_end_amount,
+	group_begin_qty,
+	group_end_qty,
+	group_begin_amount,
+	group_end_amount,
+	group_pack_price,
+	group_discount,
+	group_begin_discount,				-- 新增字段
+	group_discount_again,
+	group_decrease_amount,
+	group_fitler_qty_matching,
+	group_just_one,
+	batch_no,
+	sub_qty,
+	sub_amount,
+	level_description,
+	style_num_id,
+	CASE
+		WHEN type_num_id IN (1, 2) THEN item.sub_pmt_type_num_id
+		ELSE lev.sub_pmt_type_num_id
+	END AS sub_pmt_type_num_id,
+  CASE
+		WHEN type_num_id IN (1, 2) THEN item.sub_pmt_value
+		ELSE lev.sub_pmt_value
+	END AS sub_pmt_value,
+  CASE
+		WHEN type_num_id IN (1, 2) THEN item.sub_discount_again
+		ELSE lev.sub_discount_again
+	END AS sub_discount_again,
+ buy_limit_type,
+ buy_limit_per_person_per_day,
+ buy_limit_per_order,
+ buy_limit_per_person,
+ div_num_id,
+ cancelsign,
+ ticketid,
+ group_standard_price_sign,
+ group_multiple_sign,
+ lev.series,
+ levelgroup_count,
+ pcy_poster_url,
+ fltr_qty,
+ fltr_amount,
+ org.tenant_num_id,
+ org.data_sign,
+ ec_shop_num_id,
+ scope_num_id,
+ begin_dtme,
+ end_dtme,
+ PMT_SELLING_POINT,
+ loc_pty_num_id,
+ DISCOUNT_NUMBER,
+ PACK_PRICE,
+ cycle_type,
+ cycle_week,
+ cycle_month,
+ cycle_time,
+ group_summary_level,
+ vip_grade_string,
+ grade,
+ group_discount_again
+FROM
+	pmt_pcy_org org 
+INNER JOIN pmt_pcy_level_group lev ON org.data_sign = lev.data_sign AND org.tenant_num_id = lev.tenant_num_id AND org.reserved_no = lev.reserved_no
+INNER JOIN pmt_pcy_item item ON org.reserved_no = item.reserved_no AND org.tenant_num_id = item.tenant_num_id AND org.data_sign = item.data_sign 
+
+WHERE
+	org.tenant_num_id = ?
+AND org.data_sign = ?
+AND item_num_id = ?
+AND scope_num_id = ?
+-- 如果scopeNumId=2 分公司
+and mg_unit_num_id = ?
+-- 如果scopeNumId=3 门店
+and sub_unit_num_id = ?
+-- 如果scopeNumId=4 电商门店
+and ec_shop_num_id = ?
+
+and FIND_IN_SET(lev.series,item.lable_series)
+;

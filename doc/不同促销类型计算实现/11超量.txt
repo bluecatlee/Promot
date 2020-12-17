@@ -1,0 +1,186 @@
+【超量促销】
+	grade=2
+	type_num_id=11
+	view_type_num_id=201101
+
+	第N件促销的简化版
+
+	满M件，第N起X元（M>=N)
+		实际X是折扣 不是指定价格
+
+	参与商品范围只能设置部分商品
+	
+	不翻倍
+	一档一组
+	只执行一档。实际只能有一档
+	
+	是否正价参与standard_price_sign
+		就是是否排除特价商品
+		特价商品门槛group_begin_discount
+		就是说：
+			如果是特价商品 它的交易价tradePrice是低于原价retailPrice的(可能是执行售价低或者前面有其他促销使用了)
+			特价商品如果要参与该促销，必须满足：retailPrice原价 * (特价商品门槛) % <= 当前使用超量促销前的交易价tradePrice
+			不满足条件的商品会被排除 不使用该超量促销
+			【特价商品的特价如果已经低于门槛，就会被排除】
+			【特价商品的特价必须高于门槛，才能使用促销】
+			【如果门槛设为100%， 则特价商品都不能参与促销】
+			也就是说，特价商品价格换算成基于原价的折扣百分比后，如果小于这个门槛百分比，就不参与
+	
+	【优惠金额需要抵掉折让掉的部分】
+	注意	
+		折后价是使用促销之后的价格
+		优惠金额是使用促销优惠的金额(不包括使用促销前优惠的金额),主要是计算促销后展示用的
+		折让金额就是相对于原价优惠的金额，最终会保存到小票明细的deduct_amount
+	
+	
+	
+	关键字段：
+	pmt_pcy_bl_level_dtl
+		levelgroup_id
+		standard_price_sign  是否正价参与 0否 1是
+		begin_qty			满足起始数量 M
+		#end_qty			999999
+		discount			折扣		X	    
+		group_begin_discount特价商品门槛 折扣
+		discount_number		折扣起始数量 N
+	pmt_pcy_level_group
+		levelgroup_id
+		group_begin_qty 		M
+		#group_end_qty			999999
+		discount_number			N
+		group_discount			X
+		group_begin_discount	特价商品门槛 折扣
+		group_just_one			1仅执行一档
+		group_standard_price_sign 是否正价参与/是否排除特价商品 0否 1是
+		
+		
+		
+		
+--------------------------------------------
+代码思路
+	
+	遍历组
+	
+		获取每个档对应的商品购买的总金额allAmount和总数量allQty  【这个方法是通用的】
+				allQty = 同一个档下所有商品 QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2  之和
+				allAmount = 同一个档下所有商品 TRADE_AMOUNT 之和
+				
+				注意正价的校验，即如果groupStandardPriceSign=1(正价参与、排除特价商品)  
+					如果POSITIVE_TRADE_PRICE不等于TRADE_PRICE   【POSITIVE_TRADE_PRICE初始值取自retail_price零售价/原价】
+					且POSITIVE_TRADE_PRICE * groupBeginDiscount > TRADE_PRICE
+					此时即：销价 < 原价 * (特价商品门槛) %  ， 不满足条件，不参与总数量和总金额的计算
+				
+			校验总金额和总数量是否满足设定的档的金额起止条件或者数量起止条件，过滤出满足条件的档
+				注意 这里用的是：【如果是一档一组 其实用这个和用条件起始数量/金额 是不是没啥区别】
+					group_begin_qty		分组起始数量
+					group_end_qty		分组截止数量 
+					group_begin_amount	分组起始金额
+					group_end_amount	分组截止金额
+					
+					
+		遍历组下的商品列表 【按照STANDARD_PRICE降序】
+			直接购买，不参与促销的数量
+			shouldPurchaseQty = discountNumber(折扣起始数量 N) - 1
+			
+			获取单个商品的可用数量：
+				avaliQty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_2
+			满足条件可以参与促销的数量	
+				remainCouldCauclateDeductQty = avaliQty - Min(avaliQty, shouldPurchaseQty)
+				
+			如果(remainCouldCauclateDeductQty不等于0 即可以参与促销
+				获取优惠基准groupDiscountAgain
+					如果优惠基准groupDiscountAgain=1	原价/零售价/吊牌价
+						优惠金额deductAmount = RETAIL_PRICE * (1 - groupDiscount) * remainCouldCauclateDeductQty
+								deductAmount = TRADE_PRICE - RETAIL_PRICE + deductAmount
+					如果优惠基准groupDiscountAgain=2	折后价【基于其他折扣之后 再次折扣】
+						优惠金额deductAmount = TRADE_PRICE * (1 - groupDiscount) * remainCouldCauclateDeductQty
+					如果优惠基准groupDiscountAgain=3	实际售价/执行售价
+						优惠金额deductAmount = STANDARD_PRICE * (1 - groupDiscount) * remainCouldCauclateDeductQty
+								deductAmount = TRADE_PRICE - STANDARD_PRICE + deductAmount
+								
+								【此处计算之后的优惠金额不是仅仅使用促销的优惠金额】
+								【还需要抵掉本身就有的优惠】
+								  
+								 【这个地方没有更新商品的可用数量 itemDetail中的QTY.SINGLE_GRADE_USE_QTY.USE_QTY_2
+								  也没有更新新的TRADE_PRICE等信息】 
+								  
+			最终返回所有商品的优惠金额之和(一个组的所有优惠金额之和)	
+			
+		最终叠加所有组(一个档)的所有优惠金额之和totalDeductAmount
+		
+		cauclateDeductPromotion
+			计算原订单交易价总和(所有商品的总交易金额)
+				totalTradePrice = sum(TRADE_PRICE * QTY)
+				
+			分摊优惠总金额	
+				如果totalDeductAmount=0
+					封装deductItemInfo
+						{
+							"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+							"DEDUCT_AMOUNT":					0
+							"SERIES":							#小票商品行号
+							"TRADE_PRICE":						TRADE_PRICE
+						}
+					再封装到list中 以List<Map<String, Object>>
+				否则(总优惠金额大于0)
+					遍历组下的商品
+						从itemDetail获取旧的TRADE_PRICE
+						计算单个商品的总交易金额
+							singleTotalTradePrice = TRADE_PRICE * QTY
+						计算单个商品应该分摊的优惠金额：	
+							#singleCouldShareDeduct = 
+							#	singleTotalTradePrice - singleTotalTradePrice * (totalTradePrice-totalDeductAmount)	/ totalTradePrice
+							【这公式写的花里胡哨的。。。】
+							不就是按照商品交易金额占总订单交易金额的比例去分摊总优惠金额吗？
+							singleCouldShareDeduct = (singleTotalTradePrice/totalTradePrice) * totalDeductAmount
+						并计算剩余应该分摊的金额
+							shouldShareDecuteAmount = shouldShareDecuteAmount(初始值为totalDeductAmount) - singleCouldShareDeduct
+							注意由于计算精度误差，最后一个商品的分摊金额就是上一次剩余应该分摊的金额
+							
+						更新商品的中间值itemDetail信息
+							使用量：SINGLE_GRADE_USE_QTY.USE_QTY_2 += useQty(之前的avaliQty)	
+							新交易价TRADE_PRICE：旧TRADE_PRICE - singleCouldShareDeduct/QTY
+							新COM_TRADE_PRICE = 新TRADE_PRICE
+							新TRADE_AMOUNT = 旧TRADE_AMOUNT + singleCouldShareDeduct
+							
+						封装deductItemInfo
+							{
+								"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+								"DEDUCT_AMOUNT":					singleCouldShareDeduct
+								"SERIES":							#小票商品行号
+								"TRADE_PRICE":						新TRADE_PRICE
+							}
+						再封装到list中 以List<Map<String, Object>> 	
+						
+				最终封装结果，并设置到resDeductInfoList
+					元素是Map
+						{
+							"RESERVED_NO":
+							"GRADE":
+							"LEVELGROUP_ID":
+							"TOTAL_DEDUCT_AMOUNT":			// 商品优惠总金额 totalDeductAmount
+							"TYPE_NUM_ID":
+							"EXPIRE_TIME":					// 失效时间就是endDtme
+							"TICKET_ID":
+							"ITEM_INFO": [					// 商品信息
+								{
+									"ITEM_NUM_ID_AND_LOC_PTY_NUM_ID":
+									"DEDUCT_AMOUNT":					singleCouldShareDeduct
+									"SERIES":							#小票商品行号
+									"TRADE_PRICE":						新TRADE_PRICE
+								}
+							]	
+							"DESCRIPTION":
+						}	
+
+
+注意每个档执行完之后，会再次调用getPromotionPmtPcyItemLable
+	主要是为了获取groupJustOne是否执行一档，来决定后面的档要不要继续执行还是直接跳过
+
+	#但是里面的逻辑还有：
+	#正价的校验，即如果groupStandardPriceSign=1(正价参与)  
+	#	如果POSITIVE_TRADE_PRICE不等于TRADE_PRICE   【POSITIVE_TRADE_PRICE初始值取自retail_price零售价/原价】
+	#	且POSITIVE_TRADE_PRICE * groupBeginDiscount > TRADE_PRICE
+	#	此时即：销价 < 原价 * (特价门槛) %  ， 不满足条件，不参与总数量和总金额的计算
+
+	没什么用。。不影响这一档的计算结果

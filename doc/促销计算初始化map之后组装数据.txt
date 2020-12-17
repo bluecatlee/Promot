@@ -1,0 +1,119 @@
+singleDealCalcluatePromotion 单个促销政策计算促销
+	遍历当前政策下的所有档
+		从groupFltMap中获取档内组数，检查分档的组数是否满足
+		计算促销
+			遍历档
+				如果组数大于1
+					cauclateOneGroupHaveMoreThanOneLevelfltr 一档多组计算促销
+				如果组数等于1
+					cauclateOneGroupHaveOneLevelfltr 一档一组计算促销
+						
+					
+				判断是否只执行一档groupJustOne 如果只执行一档groupJustOne=1 结束循环并返回，否则继续循环
+				
+				
+		
+cauclateOneGroupHaveOneLevelfltr 一档一组促销： 		
+		从groupFltMap获取配比信息
+			key：{reservedNo}#{levelgroup_id}#qty_matching
+			value：group_fitler_qty_matching					1有配比 0无配比   
+			【单品促销应该默认都是无配比的】
+			【组合促销默认有配比】
+			
+			【单品促销应该没有翻倍业务】
+			getMultipleAndPassInfo 获取翻倍次数 以及lableModel信息				
+				遍历组
+					根据每组的{itemNumId}_{locPtyItemId}#{labelSeries}#{orderLineSeries}集合信息
+					（
+						getAllAmountAndQty 统计参与促销的所有商品的数量及总价 【通用方法】
+							遍历
+								获取{itemNumId}_{locPtyItemId}、{labelSeries}、
+								根据labelSeries获取lableModel，类型为PromotionPmtPcyItemLable
+								根据itemNumIdAndLocPtyNumId获取itemAppendLocPtyNumIdAndDetailMap下存的促销的几个价格
+								
+								
+								【正价就是原价？】【单品促销groupStandardPriceSign字段无用=0】
+								如果是正价参与groupStandardPriceSign=1，
+								且POSITIVE_TRADE_PRICE != TRADE_PRICE,
+								且POSITIVE_TRADE_PRICE * groupBeginDiscount(组的起始折扣？) > TRADE_PRICE
+								则继续下一次循环  (大概意思就是计算了促销之后价格都高于tradeprice 就不参与促销)
+								
+								// 获取当前促销等级可以使用的数量信息
+								qty = QTY - SINGLE_GRADE_USE_QTY.USE_QTY_{gradeId}
+								sub_qty
+								sub_amount
+								
+								如果 (qty >= sub_qty 且 qty > 0) 或者 (TRADE_AMOUNT >= sub_amount 且 sub_amount > 0)
+								叠加总数量和总金额 allQty = allQty + qty , allAmount = allAmount + amount
+								
+						得到总数量allQty和总金额allAmount 
+						【每个档对应的商品所购买的总数量和总金额，用于下面校验促销标签的分组条件数量/金额起止限制】 		
+					）
+					
+					lableModel中获取最大翻倍次数groupMultipleSign
+					
+					【此处是校验 小票明细的商品数量或者商品金额是否满足促销档设定的起止数量或起止金额的条件】
+					【对于单品促销(类型是1) 没有这样的限制】
+					#【对于满金额组合促销(类型是2) ..】
+					校验checkPromotionIsPass(double totalQty, double totalAmount, PromotionPmtPcyItemLable lableModel)
+						如果(totalQty > 0 && totalQty >= sub_qty) || (totalAmount > 0 && totalAmount >= sub_amount)
+							如果促销类型是 5 6 8 10 11 12 605中的一种
+								group_begin_qty分组条件开始数量
+								group_end_qty分组条件截止数量
+								group_begin_amount分组条件开始金额
+								group_end_amount分组条件截止金额
+								
+								（如果促销类型是5(满减) group_end_qty和group_end_amount设为999999）
+								
+								检测订单金额或者数量是否满足促销条件：
+								(totalQty <= group_end_qty) && (totalQty >= group_begin_qty) && group_begin_qty != 0
+								(totalAmount <= group_end_amount) && (totalAmount >= group_begin_amount) && group_begin_amount != 0)
+								【这里就是促销数量限制和促销金额限制的校验】
+								【分组条件数量/金额的限制 是针对分组的】
+								【同一个商品的总数量必须大于等于分组条件开始数量且小于等于分组条件截止数量】	
+								【同一个商品的总金额必须大于等于分组条件开始金额且小于等于分组条件截止金额】
+							如果促销是其他类型
+								fltr_begin_qty条件起始数量 按组的
+								fltr_end_qty条件截止数量
+								fltr_begin_amount条件开始金额
+								fltr_end_amount条件截止金额
+								
+								(totalQty <= fltr_end_qty) && (totalQty >= fltr_begin_qty)
+								(totalAmount <= fltr_end_amount) && (totalAmount >= fltr_begin_amount) && fltr_begin_amount != 0)
+								
+							【重要，有关单品促销的一个校验处理】	
+							如果促销类型是1
+								【单品促销 如果是减价的方式 如果减价的值小于实际售价 则校验不通过 不能适用促销】
+								获取subPmtTypeNumId折扣方式：  1-打折(0,+OO),2-减价(0,+OO),3-指定价格(0,+OO)
+								如果是1或3 则满足
+								如果是2 需要满足totalAmount/totalQty(当前组的商品平均金额) > sub_pmt_value 减去的值   ？？？？
+														(因为对于单品促销 前面过滤过了 实际只有一组 所以这边能校验通过？？？)
+							
+							subPmtTypeNumId=0时 促销类型不能是1,2,7
+							【即 促销类型是1 2 7时 折扣方式必须要有值】
+														
+							如果促销类型是8且group_begin_qty=0且group_begin_amount=0 也是满足的
+
+
+					如果qty_matching=1(有配比)，求每个组的倍数
+						最小翻倍数：multiple = allQty/fltr_begin_qty
+								或者 multiple = allAmount/fltr_begin_amount
+
+			返回这一档 是否通过 以及最小翻倍倍数的信息
+
+
+		如果通过校验
+			如果有配比qty_matching=1  【组合促销有配比】
+				calculatePromotionGroupToLevelRelationshipOneToMoreHavaMatching
+			如果无配比  【单品促销是无配比的】
+				calculatePromotionGroupToLevelRelationshipOneToOne
+
+
+				
+		
+		
+	
+	
+
+		
+			

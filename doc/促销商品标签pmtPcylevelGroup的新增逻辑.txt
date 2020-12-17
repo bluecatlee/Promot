@@ -1,0 +1,112 @@
+组装数据成PMT_PCY_ITEM_LABLE
+		SERIES
+		BATCH_NO			写死0 无用
+		CANCELSIGN			X
+		
+		VIP_GRADE_STRING		适用会员等级,0代表全部适用
+
+		// 以下字段的值来源于促销主表 
+		RESERVED_NO
+		GRADE				//一级类别 数值较小者优先
+		TYPE_NUM_ID			
+		BEGIN_DAY
+		END_DAY	
+		BEGIN_TM
+		END_TM
+		BEGIN_DTME
+		END_DTME
+		DESCRIPTION
+		PCY_POSTER_URL		海报 
+		PMT_SELLING_POINT
+		TICKETID			卡券规则id
+
+		IS_RESOLVE_TICKETS	现金券是否需要分摊至相关商品的trade_price 1是 0否
+		IS_ALL_PRODUCT	全场商品 0:指定商品 1:全场商品 2:全场且排除指定商品
+
+		PLATFORM_IDS
+
+		SCOPE_NUM_ID		促销范围 1-全国 2-分公司 3-门店 4-电商门店
+		DIV_NUM_ID
+		MG_UNIT_NUM_ID
+		SUB_UNIT_NUM_ID
+		EC_SHOP_NUM_ID
+		ITEM_NUM_ID
+		LOC_PTY_NUM_ID
+		ITEMID
+		BARCODE
+		ITEM_NAME
+		SETTLEMENT_TYPE_STRING
+		
+		CYCLE_TYPE	循环类型
+		CYCLE_WEEK
+		CYCLE_MONTH
+
+		// 以下字段来源于档
+		LEVELGROUP_ID		分档组号
+		LEVELFLTR_COUNT		符合促销要几组条件
+
+		DEPRECIATE			折后价
+
+		GROUP_BEGIN_QTY		分组起始数量
+		GROUP_END_QTY		分组截止数量
+		GROUP_BEGIN_AMOUNT	分组起始金额
+		GROUP_END_AMOUNT	分组截止金额
+		GROUP_DISCOUNT		分组折扣
+		GROUP_DECREASE_AMOUNT	分组立减金额
+		GROUP_FITLER_QTY_MATCHING	条件组数量配比 
+		GROUP_JUST_ONE		1：仅执行一档，0：全执行
+
+		LEVELGROUP_COUNT	分档数量 
+
+		SUB_QTY				限定达到的条件量
+		SUB_AMOUNT			限定达到的条件额
+		LEVEL_DESCRIPTION	分档描述
+
+		STYLE_NUM_ID		款式编号
+
+		SUB_PMT_TYPE_NUM_ID	折扣方式 1-打折(0,+OO),2-减价(0,+OO),3-指定价格(0,+OO)
+		SUB_PMT_VALUE		折扣值
+		SUB_DISCOUNT_AGAIN	打折基准 
+
+		GROUP_STANDARD_PRICE_SIGN	是否正价参与1 是 0 否
+		GROUP_MULTIPLE_SIGN		最大翻倍次数
+
+		GROUP_PACK_PRICE		分组打包价 
+		DISCOUNT_NUMBER			打折的件数
+		
+		CYCLE_TIME
+	
+		GROUP_DISCOUNT_AGAIN
+	
+	
+	
+		PACK_PRICE
+		GROUP_SUMMARY_LEVEL
+		GROUP_BEGIN_DISCOUNT
+		GROUP_END_DISCOUNT
+		VIP_TYPE_NUM_ID
+
+
+		// 对接第三方增加的字段  这些字段的值也来自促销主表 
+		CYCLE_TIME_SIGN; // 是否启用时间段 1:启用 0:不启用
+		BUY_LIMIT_TYPE; // 是否启用用户限购 0: 不限制 1:全部 2:门店新客
+		BUY_LIMIT_PER_PERSON_PER_DAY; // 每人每日限购件数(单品促销)/单数(整单促销)
+		BUY_LIMIT_PER_ORDER; // 每单限购件数
+		BUY_LIMIT_PER_PERSON; // 活动期间单用户总限购数量
+		BUY_LIMIT_PER_ACTIVITY; // 活动总限购数量
+		SHOW_CATEGORY; // 饿百店铺页活动商品的分类名称，不超过8个字，只对品类满减生效
+		PROMOTION_SHOW_RULE; // 优惠规则(饿百),(京东广告语)
+		DAILY_LIMIT_STOCK_QTY; //  当日活动商品库存
+		
+		
+		NTH_PCY_RULE;  // 1:低价打折 2:同品打折  这个字段来源于档
+		
+		
+		// 以下字段值来源于 组  除了条件组号，其余为空时默认都是0
+		LEVELFLTR_ID		条件组号
+		FLTR_BEGIN_QTY		条件起始数量
+		FLTR_END_QTY		条件截止数量 
+		FLTR_BEGIN_AMOUNT	条件起始金额
+		FLTR_END_AMOUNT		条件截止金额
+		FLTR_QTY			分组起订量 
+		FLTR_AMOUNT			分组起订金额

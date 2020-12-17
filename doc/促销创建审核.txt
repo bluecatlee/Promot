@@ -1,0 +1,410 @@
+点击创建促销
+	1.查询促销类型下拉框
+		1.根据等级查询第一级且前台展示的。比如从单品促销进来的 此时会查出单品促销这个一级等级
+			PMS-QUERY-005 pmt_pcy_grade_config
+			
+			grade：
+				1.单品促销
+				2.集合促销
+					集合-组合促销
+					集合-买赠(赠品不可选)
+					集合-满减满折
+					集合-满赠(赠品可选)
+					集合-超量促销
+					集合-第N件促销
+					集合-打包价
+					集合-满额送券
+				3.集合运费促销
+				4.店铺促销
+					店铺-满减满折
+					店铺-满赠
+					店铺-满额送券
+				5.店铺运费促销
+				6.支付方式促销
+				0.赠品促销
+				
+			
+		2.根据等级查询第二级 PMS-QUERY-009 pmt_pcy_view_config
+
+	2.根据grade、typeNumId、viewNumId查询促销配置适用平台
+		ykcloud.promotion.config.for.platforms.query
+		queryPromotionConfigForPlatforms
+		
+		1）获取全部渠道列表 PMS-QUERY-100 mdms_c_type 从基础类型表中获取 
+			1.移动网站 2.APP 3.微信小程序 4.pc网站 5.饿了么 6.京东到家 7.美团 8.饿百 9.POS 10.微信 11.淘鲜达
+			【饿百 美团 京东到家是三方平台，如果这三种渠道都没有表示自营】
+			
+		2）过滤出满足促销类型适用的渠道	
+		
+##########################################################################################################################		
+		
+【保存促销】
+步骤
+	1.gb.core.sequence.client.series.get
+	  {"series_name":"pmt_pcy_bl_hdr"}
+	  生成促销编号 
+	2.gb.cexport.data.export
+		{
+			"sql_id": "PMS-BL-HDR-I",
+			"input_param": {
+				"is_input_product": 0,					#商品是否导入 0否
+				"series": "",
+				"reserved_no": 20102200020003,			#促销编号
+				"pmt_name": "蓝猫20201022-03",			#促销名称
+				"type_num_id": 1,						#促销类型 1是单品促销
+				"activity_num_id": 20100900010001,		#活动
+				"pmt_time": "",							#促销时段？
+				"need_ticket": false,					#是否凭优惠券享用
+				"detail_details_show": 1,
+				"vip_num_ids": [],						#适用的会员级别ids
+				"apply_plat": "9",						#活动渠道
+				"ticketid": 0,							#券
+				"view_type_num_id": 1,					#促销类型参数 
+				"description": "",						#规则描述
+				"show_category": "",
+				"cycle_type": 0,						#时间段类型/循环类型  0表示不循环 1周循环 2月循环
+				"begin_day": "2020-10-22 00:00:00",		#促销开始时间
+				"end_day": "2020-10-22 23:59:59",		#促销结束时间
+				"cycle_time": "00:00-00:05,00:20-00:25",#促销时段，多个用逗号分隔
+				"cycle_week": "Mon,Tue",				#每周几循环
+				"cycle_month": " ",						#每月几号循环
+				"sub_unit_num_id": null,				
+				"settlement_type_string": "0",
+				"is_resolve_tickets": 0,
+				"is_all_product": 0,					#是否全场商品 0部分参与  1全场 2指定不参与
+				"buy_limit_disabled": true,				#是否禁用限购  false表示不禁用
+				"vip_type": 0,							#会员级别类型 0全部 1会员
+				"buy_limit_type": 0,					#限购类型 0不限购 1限购
+				"buy_limit_per_order": "",				#每单限购数(貌似无用)
+				"daily_limit_stock_qty": "",			#每日限制库存(貌似无用)
+				"buy_limit_per_person": "",				#每人总限购件数
+				"buy_limit_per_person_per_day": "",		#每人每日限购件数
+				"buy_limit_per_activity": "",			#活动总限购件数(貌似无用)
+				"vip_grade_string": "  ",				#适用的会员级别ids，应该和vip_num_ids参数二选一吧
+				"grade": 1,								#促销级别
+				"cycle_time_sign": 0,					#是否启用时间段 1启用 0不启用
+				"cycle_value": "",						？？
+				"status_num_id": 0,						#状态：0创建 这个字段不应该前端传吧
+				"create_user_id": "9001469",
+				"last_update_user_id": "9001469",
+				"newVersionSign": true					#新版本标记
+			},
+			"data_sign": "0",
+			"tenant_num_id": "6"
+		}
+		新增促销主表记录pmt_pcy_bl_hdr。就是转换成insert语句执行了 没有业务
+
+
+	  
+	3.promotion.promotion.lable.update
+		updatePromotionLable
+		{
+			"reserved_no": 20102200020003,
+			"levelgroup_type": "000",									#档类型 怎么来？
+			"levelgroup_ids": [{										#档 【分组是按照会员类型来分的 每个会员类型一个档】
+				"levelgroup_id": 1,										#档编号 前端传 一个档就是1
+				"vip_type": "0",										#针对的会员类型
+				"cycle_type": 0,										#循环类型 
+				"cycle_time_sign": 0,									#是否启用时间段
+				"cycle_time": " ",										#时间段。与表头不一样 表头这个字段没用好像 
+																					#但是此处不同类型都是这个字段传时间段
+				"standard_price_sign": "0",
+				"group_begin_discount": 0,
+				"nth_pcy_rule": 1,
+				"discount_again": "1",									#应该是优惠基准 1原价 3实际售价
+				"levelfltr_ids": [{										#组
+					"levelfltr_id": 1,									#组编号
+					"items": [{
+						"flag": "A",									#标识 A新增
+						"dimension_type": 1,							#维度类型 是商品时没这个字段 而是item_num_id
+						"item_num_id": 1,								#商品编号 不为0时表示维度为商品
+						"dimension_content": "总统牌特大虾味木薯片400g",#维度内容
+						"discount_again": "1",							#【是否允许再次折扣？这个哪来的？】
+						"sub_pmt_type_num_id": 1,						#直减价类型 1一口价 2折扣 3直减
+						"depreciate": "1",								#一口价降后金额
+						"discount": 0,									#折扣百分比
+						"depreciate_quota": 0							#折扣金额
+					}],
+					"flag": "A"
+				}],
+				"flag": "A"
+			}],
+			"first_add_sign": true,											#表示新增还是修改
+			"new_version_sign": true
+		}
+		添加档 组信息
+		【按照会员类型分档 档下有组 如果有排除 排除也是关联在组下 排除的结构是档结构】
+		问题：事实上不同会员类型下的组档信息都是一样的 数据结构可以挂在主表上。分组的话扩展性更好
+		
+		业务逻辑
+			1.如果传入了券id，查询使用同一种券的促销，校验不能与其他创建或者已审核的促销使用同一种券
+			2.如果是新版本的话(new_version_sign为true)，进行关联第三方平台的相关校验 
+				【第三方平台：饿百，美团，京东到家】
+				适用平台含有第三方平台时不支持[全场指定不参与]
+				适用平台含有饿百，京东到家时不支持[全场商品]
+				适用平台含有美团时，只有满减支持[全场商品]
+				... TODO
+			3.档操作
+				新增/更新档pmt_pcy_bl_level_dtl
+				新增会员等级pmt_pcy_bl_vip_dtl(先删除 后新增)	
+							
+				#(如果是删除，删除逻辑：
+					删除会员等级pmt_pcy_bl_vip_dtl
+					删除档pmt_pcy_bl_level_dtl
+					删除组pmt_pcy_bl_levelfltr_dtl
+					删除组明细pmt_pcy_bl_levelfltr_sub_dtl
+					删除排除组pmt_pcy_bl_exceptfltr_dtl
+					删除排除明细pmt_pcy_bl_exceptfltr_sub_dtl
+					删除赠品组pmt_pcy_bl_giftgroup_dtl
+					删除赠品组明细pmt_pcy_bl_giftgroup_sub_dtl
+					删除卡券组pmt_pcy_bl_giftticket_dtl
+					删除卡券组明细pmt_pcy_bl_giftticket_sub_dtl
+				#)			
+			4.组操作
+				校验满减，满赠，满额用券促销一档只能有一组政策 
+				新增/更新组pmt_pcy_bl_levelfltr_dtl
+		
+			5.组明细操作
+				校验：如果是单品无条件降价或组合降价，折扣、一口价、直降不能同时为零
+				校验：如果是单品促销-单品折扣，京东到家、饿百不支持折扣，美团的折扣在3折和98折之间
+					  单品促销的等级促销和时段促销不支持第三方平台(京东、饿百、美团)
+				【问题：只有新增时校验，更新时不校验？】	
+				新增/更新组明细pmt_pcy_bl_levelfltr_sub_dtl		
+			6.排除组操作
+				新增/更新排除组pmt_pcy_bl_exceptfltr_dtl
+			7.排除组明细操作
+				校验：如果是指定部分不参与，则排除商品数不可超过5000条
+				新增/更新排除组明细pmt_pcy_bl_exceptfltr_sub_dtl
+			#8.赠品组操作
+				新版本需要校验：对于买赠类型的集合促销，类型id是3/4/6
+					第三方平台包含美团时，只能添加一个赠品；
+					第三方平台包含京东时，最多只能添加3个赠品，且每个赠品的数量不能超过5
+				新增/更新赠品组pmt_pcy_bl_giftgroup_dtl
+			#9.赠品组明细操作
+				新增/更新赠品组明细pmt_pcy_bl_giftgroup_sub_dtl
+			#10.卡券组操作
+				新增/更新卡券组pmt_pcy_bl_giftticket_dtl
+			#11.卡券组明细操作
+				新增/更新卡券组明细pmt_pcy_bl_giftticket_sub_dtl
+		
+			如果操作失败，如果first_add_sign为true表示是第一次新增，此时需要删除促销表头
+		
+	  
+
+	创建完成
+	下面是回到列表页(新版促销查询列表) 需要加载的相关数据
+	 
+	#4.gb.cexport.data.export
+	  {"sql_id":"PMS-QUERY-103","input_param":{"grade":""},"data_sign":"0","tenant_num_id":"6"}
+	  获取全部促销类型pmt_pcy_view_config 下拉菜单用
+	  
+	  
+	#5.ykcloud.promotion.pmtpcyhdr.for.maintance.query
+	  {"dimension_value":"","dimension_type":"","page_index":1,"page_size":10}
+	  获取促销列表  (见下文)
+	  
+	  
+	#6.gb.cexport.data.export
+	  {"sql_id":"PMS-QUERY-100","input_param":{},"data_sign":"0","tenant_num_id":"6"}	 
+	  获取活动渠道 下拉菜单用		
+	  
+	  
+#########################################################################################################	  
+【促销列表查询(新)】
+	ykcloud.promotion.pmtpcyhdr.for.maintance.query
+	queryPmtPcyHdrForMaintenance
+	
+	【这里面有个逻辑有点问题：
+		维度值id去接去筛选的问题 虽然不同分类 品牌id 之间不会有重复的问题 但是不太好。后续不同级分类 品牌id就不能重复】
+		
+	如果搜索条件里有商品id或商品名称，会搜索出排除组里包含匹配的商品的促销
+	
+	见查询sql
+	
+	后端在返回前 自行将状态id 等信息转成描述性字符串
+	
+
+##########################################################################################################
+【适用门店】
+	先展示
+		com.gb.soa.omp.cpromotion.api.service.getTree 获取待选机构
+		promotion.promotion.lable.shop.get			  查询当前促销适用的机构(门店 电商门店 分公司)  就是回显
+	查询全国门店PMS-QUERY-008
+	查询线下门店PMS-QUERY-002	【标签组-标签-门店】是用来筛选门店的
+	查询电商门店PMS-QUERY-006
+		
+	操作后再保存
+		promotion.promotion.lable.shop.update
+		updateShopPromotionLable
+			根据参数新增数据到促销门店表pmt_pcy_bl_subunit_dtl、促销线上门店表pmt_pcy_bl_ecshop_dtl、促销分公司表pmt_pcy_bl_area_dtl
+				如果是全国门店，校验促销应用的平台：美团和饿百不支持全部门店
+													京东，仅单品直降，第二件N折，买赠，满金额减支持全部门店
+		
+【同步日志(略)】
+	ykcloud.ocs.promotion.sync.log.query   这个接口在omp_cocs项目中
+		获取京东、美团、饿了么促销同步日志
+
+##########################################################################################################
+【审核】	
+	promotion.promotion.lable.review
+	reviewPromotionLable
+	(传参flag是2时表示审核)
+	
+	获取分布式锁
+		校验促销表头状态必须是0(创建)，否则不能进行审核
+		校验第三方促销(美团、京东、饿百)并发
+			校验是否有第三方审核或反审进行中 pmt_third_sync_concurrent
+				如果有正在审核中，则抛出异常；否则插一条记录pmt_third_sync_concurrent
+		校验审核权限
+			如果有权限控制，则不可审核促销开始日期小于当天的促销 
+			校验审核人是否有当天审核(促销开始日期等于审核当日)的权限
+			(配置表mdms_s_config的pmt_config_audit_pcy_bl_hdr_date_control等信息)
+		生成标签
+			获取分布式锁
+				根据促销政策从redis中删除对应的促销信息
+					删除redis缓存：lableKey = pcyinfo.{档的series}
+					全场商品删除本地缓存(is_all_product是1或2或null时删除本地缓存)
+						本地缓存的key：{档的series}_0_{tenantNumId:6}_{dataSign:0}
+					
+					如果促销类型是1或2 商品是单独保存的 需要单独删除：
+						key：pcydiscount.i_{itemNumId}_r_{reservedNo}_s_{series}   【这个series来自labelSeries,按逗号split出来】
+					删除促销商品对应的组织（redis中存的是set集合）
+						key：lable_ary._countrywide/m_{mgUnitNumId}/s_{subUnitNumId}/e_{ecShopNumId}_t_{tenantNumId:6}_d_{dataSign:0}_{itemNumId}
+						如果促销类型是8且商品编号是0：
+							key：pcy.cashcoupon._countrywide/m_{mgUnitNumId}/s_{subUnitNumId}/e_{ecShopNumId}_t_{tenantNumId:6}_d_{dataSign:0}
+				删除已生成过标签的数据
+					删除pmt_pcy_org、pmt_pcy_level_group、pmt_pcy_item、pmt_pcy_gift_item_lable
+					
+				保存门店
+					组装数据插入到pmt_pcy_org表
+					
+				保存标签
+					如果促销类型是1或2：
+						获取促销商品
+							需要根据组明细中的维度信息去生成sql 然后进行查询 【不管什么维度 最终都以商品为表现形式】
+							同时每个档的查询商品的sql也会保存到pmt_pcy_item_sql_log
+						组装数据插入到pmt_pcy_level_group表	
+							如果维度类型是0且组明细商品id也是0，表示全场商品？
+						组装数据插入到pmt_pcy_item表	
+					否则：
+						如果组明细为空，判断促销类型必须是(5,6,7,8,12,509,605中的一种)，因为其他类型必须有商品
+								如果是509打包，校验全场打包必须是一档一组
+							组装数据插入到pmt_pcy_level_group表和pmt_pcy_item表		
+						如果组明细不为空	
+							组装数据插入到pmt_pcy_level_group表和pmt_pcy_item表		  【看不下去了 区别在哪？】
+							
+				如果促销类型是3/4/6，需要保存赠品
+					从pmt_pcy_bl_giftgroup_dtl、pmt_pcy_bl_giftgroup_sub_dtl组合数据插入到pmt_pcy_gift_item_lable
+				如果促销类型是605，保存赠品券
+					从pmt_pcy_bl_giftticket_dtl、pmt_pcy_bl_giftticket_sub_dtl组合数据插入到pmt_pcy_giftticket_lable
+					
+				更新标签状态为3(审核)	
+				更新修改人
+				修改redis缓存标示为N
+			
+			释放分布式锁
+				
+			新增促销审核操作日志promotion_generate_lable_log，记录此次操作
+			
+		加缓存
+			用synchronized同步锁限制同一个促销并发的加入redis缓存
+			加缓存
+				1).排除组明细加到缓存						【缓存排除信息】  排除信息没有把维度都转成商品？
+					key：pcy_all_product_exception_r_{reservedNo}_t_{tenantNumId:6}_d_{dataSign:0}
+					val: jsonStr
+						 {"itemNumIds":null, "exceptDimensionGroups":{"{组id}":{"dimensionName":null, "dimensionValue":null}}}
+				    expire：无
+				2).缓存促销标签		 						【缓存促销标签】
+					key：pcyinfo.{促销标签PmtPcyLevelGroup的series,即标签series}
+					value：PmtPcyLevelGroup对象的json字符串  还是PromotionPmtPcyItemLable？
+					expire：按照endDtme再加两天的时间
+				3).如果促销类型是1或2，setDiscountCache		【缓存商品折扣】
+					K:	pcydiscount.i_{itemNumId}_r_{reservedNo}_s_{标签series}
+					V:	PmtPcyItem折扣字段(subDiscountAgain、subPmtTypeNumId、subPmtValue)以map结构转成的json字符串
+					expire：按照endDtme再加两天的时间
+				4).缓存促销适用的机构						【缓存机构商品的促销】
+					K:	
+						typeNumId=8且itemNumId=0：
+							pcy.cashcoupon._countrywide_t_{tenantNumId:6}_d_{dataSign:0}  			全国
+							pcy.cashcoupon._m{mgUnitNumId}_t_{tenantNumId:6}_d_{dataSign:0}			分公司
+							pcy.cashcoupon._s{subUnitNumId}_t_{tenantNumId:6}_d_{dataSign:0}		门店
+							pcy.cashcoupon._e{ecShopNumId}_t_{tenantNumId:6}_d_{dataSign:0}			电商门店
+						否则：
+							lable_ary._countrywide_t_{tenantNumId:6}_d_{dataSign:0}
+							lable_ary._m_{mgUnitNumId}_t_{tenantNumId:6}_d_{dataSign:0}_{itemNumId}
+							lable_ary._s_{subUnitNumId}_t_{tenantNumId:6}_d_{dataSign:0}_{itemNumId}
+							lable_ary._e_{ecShopNumId}_t_{tenantNumId:6}_d_{dataSign:0}_{itemNumId}
+					V：	促销商品的促销基本信息对应的series(标签series)  集合数据 
+					expire：无
+					
+			修改促销表头的redis缓存标示为Y
+			
+		审核完成后，发消息到OCS系统 同步促销到第三方平台	
+
+----------------------------------------------------------------------------------------------	
+【作废/删除】
+		promotion.promotion.lable.review
+		reviewPromotionLable
+		(传参flag是9时表示作废，即删除) 
+		只有创建状态的促销单才能作废
+		删除pmt_pcy_org、pmt_pcy_level_group、pmt_pcy_item、pmt_pcy_gift_item_lable、pmt_pcy_giftticket_lable、pmt_pcy_item_dis_freight_free_lable
+		更新促销单头的状态为9
+		
+【终止】
+		promotion.promotion.lable.review
+		reviewPromotionLable
+		(传参flag是7时表示终止) 
+		只有已审核的才能终止
+		校验第三方促销并发 
+		缓存清除 
+		删除pmt_pcy_org、pmt_pcy_level_group、pmt_pcy_item、pmt_pcy_gift_item_lable、pmt_pcy_giftticket_lable、pmt_pcy_item_dis_freight_free_lable
+		更新促销单头的状态为7
+		同步到第三方
+	
+
+#########################################################################################
+【复制促销】
+		ykcloud.promotiion.policy.promotion.copy
+		复制之后的促销是新增状态 相当于新增
+		
+########################################################################################
+【反审】
+		promotion.promotion.review.revert
+		必须是3(审核)状态才能反审
+		删除缓存信息
+		删除保存生成的标签信息的几个表的数据
+		更新表头状态为0(创建)
+		更新redisSign为N
+		同步到第三方
+		
+		
+		
+		
+		
+########################################################################################
+【查询可用卡券】
+	PMS-QUERY-007
+		查询scrm_media_couponrule表中可用的券 (状态为2已审核、库存stock_qty不为0、用券时间符合)
+		
+【立即制券】
+		1.查询会员权益类型 (貌似无用)
+			BASE-EX_ARC_PRJ_TYPE_S
+			入参{"sysid":"SCRM","paramname":"MEMBER_RIGHTS_TYPE"}
+			结果：普通权益、阿里会员通
+		
+		2.查询券码渠道类型/券号来源的配置
+			BASE-EX_ARC_PRJ_TYPE_S
+			入参{"sysid":"SCRM","paramname":"QBARCODE_CHANNEL_TYPE_SIMPLE"}
+			结果：自动生成、券池(根据规则号获取)、券池(根据第三方渠道获取)、兑换码
+			
+		gb.scrm.mediacouponruleservice.cardmeidacouponruleadd
+			保存卡券 没有权限可看
+			就是插一条记录到scrm_media_couponrule表 status为1(创建)
+			
+		ykcloud.card.couponrule.audit
+			审核卡券 
+			更新卡券规则的状态为2(审核)
+		
+		PMS-QUERY-007 根据series查询scrm_media_couponrule表中可用的券  回显用
+		
+		

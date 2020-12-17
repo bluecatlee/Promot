@@ -1,0 +1,19 @@
+select a.grade,a.type_num_id,b.descript,a.num from  (
+
+SELECT
+ grade,
+ type_num_id,
+ count(1) AS num
+FROM
+ pmt_pcy_bl_hdr
+WHERE
+ status_num_id = 3
+AND create_dtme > '2020-01-01'
+AND tenant_num_id = 6
+AND data_sign = 0
+GROUP BY
+ grade,
+ type_num_id ) a LEFT JOIN ( SELECT grade, pmt_type_num_id , descript  from pmt_pcy_grade_config where tenant_num_id = 6 and data_sign = 0) b 
+on a.grade = b.grade and a.type_num_id = b.pmt_type_num_id 
+
+ORDER BY a.num desc;
